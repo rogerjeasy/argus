@@ -1,0 +1,195 @@
+@import "tailwindcss";
+
+/* Argus Design Tokens — adapted from docs/design/frontend-design-principles.md.
+ * See docs/specs/2026-08-12-phase0-platform-foundation-design.md §7.3 for the
+ * rationale behind each deliberate deviation from the source system. */
+
+:root {
+  --background: 210 20% 98%;      /* #F7F9FA */
+  --foreground: 215 25% 15%;      /* #1C242E */
+
+  --card: 0 0% 100%;
+  --card-foreground: 215 25% 15%;
+
+  --primary: 198 65% 32%;         /* #1B5E77 harbor blue */
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 210 16% 93%;
+  --secondary-foreground: 215 25% 15%;
+
+  --muted: 210 16% 93%;
+  --muted-foreground: 215 10% 40%;
+
+  --accent: 38 85% 55%;           /* warm amber — active listening/speaking state only */
+  --accent-foreground: 30 40% 12%;
+
+  --destructive: 0 65% 42%;
+  --destructive-foreground: 0 0% 100%;
+
+  --success: 152 55% 30%;
+  --success-foreground: 0 0% 100%;
+
+  --warning: 38 85% 40%;
+  --warning-foreground: 0 0% 100%;
+
+  --info: 205 70% 40%;
+  --info-foreground: 0 0% 100%;
+
+  --border: 210 14% 88%;
+  --input: 210 14% 88%;
+  --ring: 198 65% 32%;
+
+  --radius: 0.5rem;
+}
+
+[data-theme="dark"] {
+  --background: 215 28% 8%;       /* #0E1420 */
+  --foreground: 210 15% 92%;
+
+  --card: 215 22% 11%;
+  --card-foreground: 210 15% 92%;
+
+  --primary: 198 60% 55%;
+  --primary-foreground: 205 70% 8%;
+
+  --secondary: 215 16% 16%;
+  --secondary-foreground: 210 15% 92%;
+
+  --muted: 215 16% 16%;
+  --muted-foreground: 210 10% 62%;
+
+  --accent: 38 80% 62%;
+  --accent-foreground: 30 40% 12%;
+
+  --destructive: 0 65% 48%;
+  --destructive-foreground: 0 0% 100%;
+
+  --success: 152 50% 42%;
+  --success-foreground: 0 0% 100%;
+
+  --warning: 38 80% 52%;
+  --warning-foreground: 0 0% 100%;
+
+  --info: 205 65% 55%;
+  --info-foreground: 0 0% 100%;
+
+  --border: 215 16% 20%;
+  --input: 215 16% 20%;
+  --ring: 198 60% 55%;
+}
+
+/* Maximum-contrast theme for low-vision users. No tinted/low-opacity surfaces
+ * anywhere: a `/15` opacity tint that reads fine at normal contrast can fail
+ * outright here, so every status color is a solid fill — always paired with
+ * an icon and a text label via StatusBadge below, never color alone. */
+[data-theme="high-contrast"] {
+  --background: 0 0% 100%;
+  --foreground: 0 0% 0%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 0%;
+
+  --primary: 210 100% 30%;
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 0 0% 92%;
+  --secondary-foreground: 0 0% 0%;
+
+  --muted: 0 0% 92%;
+  --muted-foreground: 0 0% 0%;
+
+  --accent: 38 100% 35%;
+  --accent-foreground: 0 0% 100%;
+
+  --destructive: 0 100% 32%;
+  --destructive-foreground: 0 0% 100%;
+
+  --success: 145 100% 22%;
+  --success-foreground: 0 0% 100%;
+
+  --warning: 38 100% 30%;
+  --warning-foreground: 0 0% 100%;
+
+  --info: 210 100% 30%;
+  --info-foreground: 0 0% 100%;
+
+  --border: 0 0% 0%;
+  --input: 0 0% 0%;
+  --ring: 0 0% 0%;
+}
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-success: hsl(var(--success));
+  --color-success-foreground: hsl(var(--success-foreground));
+  --color-warning: hsl(var(--warning));
+  --color-warning-foreground: hsl(var(--warning-foreground));
+  --color-info: hsl(var(--info));
+  --color-info-foreground: hsl(var(--info-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 0.25rem);
+  --font-sans: var(--font-inter);
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+html {
+  color-scheme: light dark;
+}
+
+body {
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 1.125rem;   /* 18px base — raised floor, design spec §7.3 */
+  line-height: 1.6;
+}
+
+*:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+[data-theme="high-contrast"] *:focus-visible {
+  outline-width: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@keyframes enter {
+  from {
+    opacity: var(--tw-enter-opacity, 1);
+  }
+}
+
+.animate-in {
+  animation-name: enter;
+  animation-duration: 200ms;
+  animation-timing-function: ease-out;
+  --tw-enter-opacity: 0;
+}
