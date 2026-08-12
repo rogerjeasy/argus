@@ -1,10 +1,10 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from opentelemetry import trace
 from opentelemetry.trace import Tracer
 
-from app.core.telemetry import get_tracer, _provider_initialized
+from app.core.telemetry import get_tracer
 
 
 @pytest.fixture(autouse=True)

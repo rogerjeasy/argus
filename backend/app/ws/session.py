@@ -4,8 +4,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import Callable
 
+import anyio
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, status
 from google.cloud import firestore
+from starlette.concurrency import run_in_threadpool
 from starlette.websockets import WebSocketState
 
 from app.core.auth import AuthenticatedUser, InvalidTokenError, verify_id_token_string
@@ -24,6 +26,10 @@ def get_bridge_factory() -> Callable[[Settings], GeminiLiveBridge]:
 
 
 def _authenticate(websocket: WebSocket) -> AuthenticatedUser:
+    """Blocking: `verify_id_token_string` fetches/refreshes Google's JWKs over
+    the network via `firebase-admin`. Always call it through
+    `run_in_threadpool` so one handshake cannot stall every other concurrent
+    session sharing this worker's event loop."""
     token = websocket.query_params.get("token")
     if not token:
         raise InvalidTokenError("Missing token query parameter")
@@ -46,7 +52,7 @@ async def session_endpoint(
     bridge_factory: Callable[[Settings], GeminiLiveBridge] = Depends(get_bridge_factory),
 ) -> None:
     try:
-        user = _authenticate(websocket)
+        user = await run_in_threadpool(_authenticate, websocket)
     except InvalidTokenError:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
@@ -58,15 +64,19 @@ async def session_endpoint(
         span.set_attribute("argus.uid", user.uid)
         span.set_attribute("argus.session_id", session_id)
 
+        # Every Firestore call below is a synchronous gRPC round trip. Run them
+        # in a worker thread so an unrelated concurrent session's audio relay
+        # keeps flowing while this one talks to Firestore.
         session_doc = db.collection("sessions").document(session_id)
-        session_doc.set(
+        await run_in_threadpool(
+            session_doc.set,
             {
                 "session_id": session_id,
                 "uid": user.uid,
                 "started_at": datetime.now(timezone.utc).isoformat(),
                 "ended_at": None,
                 "status": "active",
-            }
+            },
         )
 
         bridge = bridge_factory(settings)
@@ -78,8 +88,9 @@ async def session_endpoint(
                 "ws_session_connect_failed",
                 extra={"session_id": session_id, "uid": user.uid},
             )
-            session_doc.update(
-                {"ended_at": datetime.now(timezone.utc).isoformat(), "status": "error"}
+            await run_in_threadpool(
+                session_doc.update,
+                {"ended_at": datetime.now(timezone.utc).isoformat(), "status": "error"},
             )
             await _close_if_connected(websocket, status.WS_1011_INTERNAL_ERROR)
             return
@@ -132,16 +143,28 @@ async def session_endpoint(
                         extra={"session_id": session_id, "uid": user.uid},
                     )
         finally:
-            # Record the terminal state and log first, with no `await` in
-            # between: synchronous statements cannot be interrupted by
-            # cancellation delivered while unwinding into this block, so this
-            # guarantees the session is never left stuck at status "active"
+            # Record the terminal state and log first, before any best-effort
+            # teardown, so the session is never left stuck at status "active"
             # even if the surrounding task is cancelled (e.g. TestClient/ASGI
             # server tearing down the connection concurrently with our own
-            # cleanup). The remaining awaited cleanup below is best-effort.
-            session_doc.update(
-                {"ended_at": datetime.now(timezone.utc).isoformat(), "status": final_status}
-            )
+            # cleanup).
+            #
+            # The shield is load-bearing. `run_in_threadpool` delegates to
+            # `anyio.to_thread.run_sync`, which opens with
+            # `checkpoint_if_cancelled()` — inside an already-cancelled anyio
+            # cancel scope (exactly what an ASGI server or TestClient tearing
+            # down the connection produces) that raises before the worker
+            # thread ever starts, and the session would be left stuck at
+            # status "active". Shielding defers that cancellation until the
+            # write has actually happened.
+            with anyio.CancelScope(shield=True):
+                await run_in_threadpool(
+                    session_doc.update,
+                    {
+                        "ended_at": datetime.now(timezone.utc).isoformat(),
+                        "status": final_status,
+                    },
+                )
             logger.info(
                 "ws_session_disconnected",
                 extra={"session_id": session_id, "uid": user.uid, "status": final_status},
