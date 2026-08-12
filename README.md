@@ -1,14 +1,15 @@
 # Argus — The Agentic Seeing-Eye Copilot
 
-Full product spec: [`docs/argus-project-spec.md`](docs/argus-project-spec.md).
-Phase specs and implementation plans: [`docs/specs/`](docs/specs/).
+The full product spec (`docs/argus-project-spec.md`) and the per-phase design
+docs and implementation plans (`docs/specs/`) are internal design documents,
+kept local and not tracked in this repository.
 
 ## What's built so far (Phase 0 — Platform Foundation)
 
 An authenticated, real-time voice round trip: browser mic → WebSocket →
 FastAPI → Gemini Live API (Vertex AI) → spoken response back to the
 browser, deployed on Cloud Run. No task-domain intelligence yet — that's
-Phase 1 onward (see `docs/specs/`).
+Phase 1 onward.
 
 ## Prerequisites
 
