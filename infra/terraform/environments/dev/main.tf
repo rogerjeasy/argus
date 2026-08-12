@@ -49,21 +49,13 @@ module "events_topic" {
   depends_on = [module.apis]
 }
 
-module "firebase_admin_secret" {
-  source           = "../../modules/secret"
-  project_id       = var.project_id
-  secret_id        = "firebase-admin-key"
-  accessor_members = ["serviceAccount:${module.backend_service_account.email}"]
-  depends_on       = [module.apis]
-}
-
-module "vertex_ai_secret" {
-  source           = "../../modules/secret"
-  project_id       = var.project_id
-  secret_id        = "vertex-ai-key"
-  accessor_members = ["serviceAccount:${module.backend_service_account.email}"]
-  depends_on       = [module.apis]
-}
+# No Secret Manager secrets are declared here on purpose. The backend
+# authenticates to Firebase Admin, Firestore and Vertex AI through Application
+# Default Credentials — on Cloud Run that is the argus-backend service account
+# above, whose roles are granted directly. There is no credential *file* to
+# store, so the firebase-admin-key / vertex-ai-key containers this used to
+# create were never read by anything. `../../modules/secret` remains available
+# for the first real credential-file need.
 
 module "backend_service" {
   source                = "../../modules/cloud_run_service"
@@ -80,6 +72,11 @@ module "backend_service" {
     FIREBASE_PROJECT_ID = var.firebase_project_id
     VERTEX_AI_LOCATION  = var.region
     GEMINI_LIVE_MODEL   = var.gemini_live_model
+    # jsonencode, not a bare Terraform list: pydantic-settings parses
+    # list-typed env vars as JSON, so `["https://app.example.com"]` is what
+    # Settings.cors_allow_origins needs to see. Without this the deployed
+    # backend keeps its localhost-only default and blocks the real frontend.
+    CORS_ALLOW_ORIGINS = jsonencode(var.cors_allow_origins)
   }
   depends_on = [module.artifact_registry]
 }

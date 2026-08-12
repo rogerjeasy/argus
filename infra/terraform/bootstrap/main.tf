@@ -52,6 +52,14 @@ module "ci_service_account" {
     "roles/secretmanager.admin",
     "roles/artifactregistry.admin",
     "roles/iam.serviceAccountUser",
+    # environments/dev creates the argus-backend service account via the
+    # service_account module, so CI must be able to create and delete service
+    # accounts — serviceAccountUser only lets it *act as* one that exists.
+    "roles/iam.serviceAccountAdmin",
+    # That same module attaches project-level role bindings to the account it
+    # creates (google_project_iam_member), which requires the ability to
+    # modify the project's IAM policy.
+    "roles/resourcemanager.projectIamAdmin",
     "roles/serviceusage.serviceUsageAdmin",
     "roles/storage.admin",
   ]

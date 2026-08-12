@@ -56,12 +56,11 @@ Then set the three printed outputs as GitHub Actions repository variables
 (`GCP_TF_STATE_BUCKET`, `GCP_CI_SERVICE_ACCOUNT_EMAIL`,
 `GCP_WORKLOAD_IDENTITY_PROVIDER`) alongside `GCP_PROJECT_ID` — CI never
 touches a long-lived service-account key, only these public identifiers.
-Then populate the two secrets Terraform created as empty containers
-(credential values never live in source control or Terraform state):
-```bash
-gcloud secrets versions add firebase-admin-key --data-file=path/to/firebase-admin.json
-gcloud secrets versions add vertex-ai-key --data-file=path/to/vertex-ai-sa.json
-```
+
+There is nothing else to populate: the deployed backend authenticates to
+Firebase Admin, Firestore and Vertex AI via Application Default Credentials —
+the Cloud Run service account's own identity — so no credential file exists to
+upload or rotate.
 
 **Manually, from a laptop**, once bootstrap is done:
 ```bash

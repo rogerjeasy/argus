@@ -30,13 +30,11 @@ Record the three outputs — `state_bucket_name`, `ci_service_account_email`,
 `GCP_WORKLOAD_IDENTITY_PROVIDER`. These are identifiers, not secrets — no
 service-account key file is ever generated or stored.
 
-Then populate the two secret containers `environments/dev` creates
-(values are credentials — never committed, never in Terraform state):
-
-```bash
-gcloud secrets versions add firebase-admin-key --data-file=path/to/firebase-admin.json
-gcloud secrets versions add vertex-ai-key --data-file=path/to/vertex-ai-sa.json
-```
+That is the whole one-time setup — there are no secret values to populate.
+The backend reaches Firebase Admin, Firestore and Vertex AI through
+Application Default Credentials: on Cloud Run that is the `argus-backend`
+service account's own identity, granted the roles it needs in
+`environments/dev/main.tf`. No credential file exists to leak.
 
 ## Everyday use (dev environment)
 

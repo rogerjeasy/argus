@@ -1,3 +1,7 @@
 project_id          = "argus-hackathon"
 region              = "us-central1"
 firebase_project_id = "argus-hackathon"
+
+# The deployed frontend's origin. Leave at the default and a browser on any
+# real domain is blocked by CORS.
+cors_allow_origins = ["http://localhost:3000"]

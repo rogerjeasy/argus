@@ -12,6 +12,12 @@ variable "firebase_project_id" {
   description = "Usually identical to project_id; kept separate in case Firebase ever lives in its own project."
 }
 
+variable "cors_allow_origins" {
+  type        = list(string)
+  description = "Origins the deployed backend accepts browser requests from — the frontend's real URL. Passed to the container as a JSON array because pydantic-settings parses list-typed env vars as JSON. Defaults to local development only, which is safe but blocks a deployed frontend until it is set."
+  default     = ["http://localhost:3000"]
+}
+
 variable "gemini_live_model" {
   type    = string
   default = "gemini-live-2.5-flash"
