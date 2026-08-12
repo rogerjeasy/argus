@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 type SessionStatus = "idle" | "connecting" | "connected" | "error";
 
@@ -10,6 +10,12 @@ export function useSession(token: string | null) {
   const [status, setStatus] = useState<SessionStatus>("idle");
   const [captions, setCaptions] = useState<string[]>([]);
   const socketRef = useRef<WebSocket | null>(null);
+
+  useEffect(() => {
+    return () => {
+      socketRef.current?.close();
+    };
+  }, []);
 
   const start = useCallback(async () => {
     if (!token) {
@@ -22,7 +28,11 @@ export function useSession(token: string | null) {
 
     socket.onopen = () => setStatus("connected");
     socket.onerror = () => setStatus("error");
-    socket.onclose = () => setStatus("idle");
+    // A real disconnect fires onclose immediately after onerror; without this
+    // guard the "Connection error" status — the one thing ConnectionStatus is
+    // mandated to surface via icon+text+color — would be overwritten by
+    // "Not connected" before anyone could perceive it.
+    socket.onclose = () => setStatus((prev) => (prev === "error" ? "error" : "idle"));
     socket.onmessage = (event) => {
       setCaptions((prev) => [...prev, String(event.data)]);
     };

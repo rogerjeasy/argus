@@ -58,4 +58,43 @@ describe("useSession", () => {
     });
     expect(result.current.status).toBe("idle");
   });
+
+  it("preserves the error status when onclose fires right after onerror", async () => {
+    vi.stubGlobal("WebSocket", FakeWebSocket as unknown as typeof WebSocket);
+    const { result } = renderHook(() => useSession("fake-token"));
+
+    await act(async () => {
+      await result.current.start();
+    });
+    const socket = FakeWebSocket.instances.at(-1);
+
+    act(() => {
+      socket?.onerror?.();
+    });
+    await waitFor(() => expect(result.current.status).toBe("error"));
+
+    act(() => {
+      socket?.onclose?.();
+    });
+    expect(result.current.status).toBe("error");
+  });
+
+  it("accumulates captions in order across multiple onmessage events", async () => {
+    vi.stubGlobal("WebSocket", FakeWebSocket as unknown as typeof WebSocket);
+    const { result } = renderHook(() => useSession("fake-token"));
+
+    await act(async () => {
+      await result.current.start();
+    });
+    const socket = FakeWebSocket.instances.at(-1);
+
+    act(() => {
+      socket?.onmessage?.({ data: "first caption" });
+    });
+    act(() => {
+      socket?.onmessage?.({ data: "second caption" });
+    });
+
+    await waitFor(() => expect(result.current.captions).toEqual(["first caption", "second caption"]));
+  });
 });

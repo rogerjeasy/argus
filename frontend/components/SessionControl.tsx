@@ -15,7 +15,13 @@ export function SessionControl() {
       setToken(null);
       return;
     }
-    void user.getIdToken().then(setToken);
+    void user
+      .getIdToken()
+      .then(setToken)
+      .catch((err) => {
+        console.error(err);
+        setToken(null);
+      });
   }, [user]);
 
   const { status, captions, start, stop } = useSession(token);
