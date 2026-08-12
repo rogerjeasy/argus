@@ -24,7 +24,7 @@ export function SessionControl() {
       });
   }, [user]);
 
-  const { status, captions, start, stop } = useSession(token);
+  const { status, errorMessage, start, stop } = useSession(token);
   const isActive = status === "connected" || status === "connecting";
 
   return (
@@ -38,10 +38,13 @@ export function SessionControl() {
         {isActive ? "Stop" : "Start"}
       </Button>
       <ConnectionStatus status={status} />
-      <div aria-live="polite" className="min-h-[2rem] animate-in">
-        {captions.map((line, index) => (
-          <p key={index}>{line}</p>
-        ))}
+      {/* Argus's reply is spoken, not captioned — Phase 0's protocol carries
+          audio only. This region exists for what audio cannot convey: why a
+          session failed, in plain language, announced without stealing focus.
+          `assertive` because it only ever holds something the user must act
+          on. */}
+      <div aria-live="assertive" className="min-h-[2rem] animate-in">
+        {errorMessage ? <p>{errorMessage}</p> : null}
       </div>
     </div>
   );
