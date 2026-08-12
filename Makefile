@@ -23,14 +23,16 @@ frontend-test:
 	cd frontend && pnpm test
 
 bootstrap:
-	cd infra/terraform/bootstrap && terraform init && terraform apply
+	cd infra/terraform/bootstrap && terraform init && terraform apply \
+		-var="project_id=$(GCP_PROJECT_ID)" \
+		-var="state_bucket_name=$(GCP_TF_STATE_BUCKET)"
 
 deploy:
 	gcloud auth configure-docker $(GCP_REGION)-docker.pkg.dev
 	docker build -t $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT_ID)/argus/argus-backend:latest backend
 	docker push $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT_ID)/argus/argus-backend:latest
 	cd infra/terraform/environments/dev && \
-		terraform init -backend-config="bucket=$(TF_STATE_BUCKET)" && \
+		terraform init -backend-config="bucket=$(GCP_TF_STATE_BUCKET)" && \
 		terraform apply \
 			-var="project_id=$(GCP_PROJECT_ID)" \
 			-var="firebase_project_id=$(GCP_PROJECT_ID)" \
