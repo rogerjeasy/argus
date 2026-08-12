@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+.next/
+*.tsbuildinfo
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+
+# Env files (never committed — credentials live in Secret Manager / .env.local)
+.env
+.env.local
+*.env
+!*.env.example
+
+# Editor/OS
+.DS_Store
+.vscode/
+.idea/
