@@ -34,16 +34,18 @@ class GeminiLiveBridge:
         ).__aenter__()
 
     async def send_audio(self, chunk: bytes) -> None:
-        assert self._live_session is not None, "call connect() before send_audio()"
+        if self._live_session is None:
+            raise RuntimeError("call connect() before send_audio()")
         await self._live_session.send(input={"data": chunk, "mime_type": "audio/pcm"})
 
     async def receive_audio(self) -> AsyncIterator[bytes]:
-        assert self._live_session is not None, "call connect() before receive_audio()"
+        if self._live_session is None:
+            raise RuntimeError("call connect() before receive_audio()")
         async for response in self._live_session.receive():
             if response.data is not None:
                 yield response.data
 
     async def close(self) -> None:
         if self._live_session is not None:
-            await self._live_session.__aexit__(None, None, None)
+            await self._live_session.close()
             self._live_session = None

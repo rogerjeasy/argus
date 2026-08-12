@@ -11,6 +11,7 @@ class _FakeLiveSession:
     def __init__(self, replies: list[bytes]) -> None:
         self._replies = replies
         self.sent: list[bytes] = []
+        self.closed = False
 
     async def send(self, *, input: dict) -> None:
         self.sent.append(input["data"])
@@ -20,6 +21,9 @@ class _FakeLiveSession:
             response = MagicMock()
             response.data = chunk
             yield response
+
+    async def close(self) -> None:
+        self.closed = True
 
     async def __aenter__(self) -> "_FakeLiveSession":
         return self
@@ -54,3 +58,17 @@ async def test_receive_audio_yields_response_chunks() -> None:
 
     received = [chunk async for chunk in bridge.receive_audio()]
     assert received == [b"chunk-1", b"chunk-2"]
+
+
+@pytest.mark.asyncio
+async def test_close_invokes_session_close() -> None:
+    fake_session = _FakeLiveSession(replies=[])
+    fake_client = MagicMock()
+    fake_client.aio.live.connect.return_value = fake_session
+    settings = Settings(gcp_project_id="p", vertex_ai_location="us-central1", gemini_live_model="m")
+
+    bridge = GeminiLiveBridge(settings, client_factory=lambda: fake_client)
+    await bridge.connect()
+    await bridge.close()
+
+    assert fake_session.closed is True
