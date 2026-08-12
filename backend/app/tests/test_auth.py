@@ -2,6 +2,7 @@ from unittest.mock import patch
 
 import pytest
 from fastapi import HTTPException
+from fastapi.security import HTTPAuthorizationCredentials
 
 from app.core.auth import InvalidTokenError, get_current_user, verify_id_token_string
 
@@ -25,4 +26,14 @@ def test_verify_id_token_string_raises_on_invalid_token() -> None:
 async def test_get_current_user_raises_401_when_no_credentials() -> None:
     with pytest.raises(HTTPException) as exc_info:
         await get_current_user(credentials=None)
+    assert exc_info.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_get_current_user_raises_401_on_invalid_token() -> None:
+    """Test that get_current_user catches InvalidTokenError and re-raises as 401."""
+    creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="invalid-token")
+    with patch("app.core.auth.verify_id_token_string", side_effect=InvalidTokenError("Token expired")):
+        with pytest.raises(HTTPException) as exc_info:
+            await get_current_user(credentials=creds)
     assert exc_info.value.status_code == 401
