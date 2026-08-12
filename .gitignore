@@ -32,3 +32,6 @@ crash.log
 # Claude Code tooling config (session/environment-specific, not project content)
 .claude/
 
+# Docs/specs stay local until explicitly committed
+docs/
+
