@@ -171,6 +171,63 @@ describe("useSession connection lifecycle", () => {
     expect(close).toHaveBeenCalled();
     expect(latestSocket().closeCalls).toBe(1);
   });
+
+  it("releases the microphone when the server closes the socket (no prior error)", async () => {
+    // The most likely real disconnect in production — Gemini dropping the
+    // stream, a token expiring, a Cloud Run instance recycling — arrives as
+    // a clean onclose with no preceding onerror. A live mic indicator with
+    // no session behind it is exactly the failure this test guards against.
+    const { result } = renderHook(() => useSession("fake-token"));
+    await startAndOpen(result);
+    await waitFor(() => expect(capturedOnChunk.current).not.toBeNull());
+    const socket = latestSocket();
+
+    act(() => {
+      socket.onclose?.();
+    });
+
+    expect(result.current.status).toBe("idle");
+    expect(stopCapture).toHaveBeenCalled();
+    expect(close).toHaveBeenCalled();
+  });
+
+  it("releases the microphone when the socket errors", async () => {
+    const { result } = renderHook(() => useSession("fake-token"));
+    await startAndOpen(result);
+    await waitFor(() => expect(capturedOnChunk.current).not.toBeNull());
+    const socket = latestSocket();
+
+    act(() => {
+      socket.onerror?.();
+    });
+
+    expect(result.current.status).toBe("error");
+    expect(stopCapture).toHaveBeenCalled();
+    expect(close).toHaveBeenCalled();
+  });
+
+  it("tears down a stale capture/player/socket before starting a new session", async () => {
+    // Clicking Start again after an unclean disconnect (rather than a fresh
+    // mount) must not silently orphan the previous mic capture and audio
+    // contexts — each leaked AudioContext counts against the browser's
+    // per-page cap until new ones can no longer be created.
+    const { result } = renderHook(() => useSession("fake-token"));
+    await startAndOpen(result);
+    // Wait for beginCapture's internal await to resolve and populate
+    // captureRef, not just for "connected" status (which is set
+    // synchronously in onopen, before beginCapture's promise settles).
+    await waitFor(() => expect(capturedOnChunk.current).not.toBeNull());
+    const firstSocket = latestSocket();
+
+    await act(async () => {
+      await result.current.start();
+    });
+
+    expect(firstSocket.closeCalls).toBe(1);
+    expect(stopCapture).toHaveBeenCalled();
+    expect(close).toHaveBeenCalled();
+    expect(FakeWebSocket.instances).toHaveLength(2);
+  });
 });
 
 describe("useSession microphone capture", () => {

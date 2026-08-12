@@ -38,8 +38,13 @@ export function useSession(token: string | null) {
     captureRef.current = null;
     playerRef.current?.close();
     playerRef.current = null;
-    socketRef.current?.close();
+    // Null the ref *before* calling close(): a real WebSocket.close() never
+    // re-enters onclose synchronously, but test doubles (and some
+    // environments) do. Nulling first means a re-entrant call sees no socket
+    // left to close instead of closing it a second time / recursing forever.
+    const socket = socketRef.current;
     socketRef.current = null;
+    socket?.close();
   };
 
   useEffect(() => {
@@ -84,6 +89,12 @@ export function useSession(token: string | null) {
       return;
     }
 
+    // Starting again while a previous session's socket/mic/player are still
+    // around (e.g. clicking Start after an unclean disconnect) must not
+    // silently orphan them — each leaked AudioContext counts against the
+    // browser's per-page cap until new ones can no longer be created.
+    teardownRef.current();
+
     setStatus("connecting");
     setErrorMessage(null);
 
@@ -101,12 +112,26 @@ export function useSession(token: string | null) {
     socket.onerror = () => {
       setStatus("error");
       setErrorMessage("The connection to Argus failed. Check your network and try again.");
+      // An error on the socket means this session is dead: release the mic
+      // and audio contexts now rather than waiting for onclose. A server- or
+      // network-initiated end is the most likely real-world disconnect — far
+      // more likely than a clean, user-clicked Stop — so this is the path
+      // that most needs the same cleanup start()/stop() already guarantee.
+      teardownRef.current();
     };
     // A real disconnect fires onclose immediately after onerror; without this
     // guard the "Connection error" status — the one thing ConnectionStatus is
     // mandated to surface via icon+text+color — would be overwritten by
     // "Not connected" before anyone could perceive it.
-    socket.onclose = () => setStatus((prev) => (prev === "error" ? "error" : "idle"));
+    socket.onclose = () => {
+      setStatus((prev) => (prev === "error" ? "error" : "idle"));
+      // Also reached on a clean server-initiated close (no preceding
+      // onerror) — same reasoning as above: don't leave the mic live with
+      // no session behind it. teardownRef is reentrancy-safe (nulls its
+      // refs before closing anything), so a second call here after onerror
+      // already ran is a harmless no-op.
+      teardownRef.current();
+    };
     socket.onmessage = (event: MessageEvent) => {
       if (event.data instanceof ArrayBuffer) {
         playerRef.current?.play(event.data);
