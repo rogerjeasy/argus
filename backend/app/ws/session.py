@@ -1,10 +1,12 @@
 import asyncio
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Callable
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, status
 from google.cloud import firestore
+from starlette.websockets import WebSocketState
 
 from app.core.auth import AuthenticatedUser, InvalidTokenError, verify_id_token_string
 from app.core.clients import get_firestore_client
@@ -14,6 +16,7 @@ from app.ws.gemini_bridge import GeminiLiveBridge
 
 router = APIRouter()
 tracer = get_tracer(__name__)
+logger = logging.getLogger(__name__)
 
 
 def get_bridge_factory() -> Callable[[Settings], GeminiLiveBridge]:
@@ -25,6 +28,14 @@ def _authenticate(websocket: WebSocket) -> AuthenticatedUser:
     if not token:
         raise InvalidTokenError("Missing token query parameter")
     return verify_id_token_string(token)
+
+
+async def _close_if_connected(websocket: WebSocket, code: int) -> None:
+    if websocket.application_state == WebSocketState.CONNECTED:
+        try:
+            await websocket.close(code=code)
+        except RuntimeError:
+            pass
 
 
 @router.websocket("/ws/session")
@@ -47,7 +58,8 @@ async def session_endpoint(
         span.set_attribute("argus.uid", user.uid)
         span.set_attribute("argus.session_id", session_id)
 
-        db.collection("sessions").document(session_id).set(
+        session_doc = db.collection("sessions").document(session_id)
+        session_doc.set(
             {
                 "session_id": session_id,
                 "uid": user.uid,
@@ -58,22 +70,86 @@ async def session_endpoint(
         )
 
         bridge = bridge_factory(settings)
-        await bridge.connect()
+
+        try:
+            await bridge.connect()
+        except Exception:
+            logger.exception(
+                "ws_session_connect_failed",
+                extra={"session_id": session_id, "uid": user.uid},
+            )
+            session_doc.update(
+                {"ended_at": datetime.now(timezone.utc).isoformat(), "status": "error"}
+            )
+            await _close_if_connected(websocket, status.WS_1011_INTERNAL_ERROR)
+            return
+
+        logger.info(
+            "ws_session_connected",
+            extra={"session_id": session_id, "uid": user.uid},
+        )
+
+        final_status = "closed"
 
         async def relay_from_gemini() -> None:
             async for chunk in bridge.receive_audio():
                 await websocket.send_bytes(chunk)
 
-        receiver_task = asyncio.create_task(relay_from_gemini())
-        try:
+        async def relay_from_client() -> None:
+            first_frame_logged = False
             while True:
                 chunk = await websocket.receive_bytes()
+                if not first_frame_logged:
+                    logger.info(
+                        "ws_session_first_audio_frame",
+                        extra={"session_id": session_id},
+                    )
+                    first_frame_logged = True
                 await bridge.send_audio(chunk)
-        except WebSocketDisconnect:
-            pass
-        finally:
-            receiver_task.cancel()
-            await bridge.close()
-            db.collection("sessions").document(session_id).update(
-                {"ended_at": datetime.now(timezone.utc).isoformat(), "status": "closed"}
+
+        receiver_task = asyncio.create_task(relay_from_gemini())
+        sender_task = asyncio.create_task(relay_from_client())
+
+        try:
+            done, pending = await asyncio.wait(
+                {receiver_task, sender_task}, return_when=asyncio.FIRST_COMPLETED
             )
+
+            for task in pending:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+
+            for task in done:
+                exc = task.exception()
+                if exc is not None and not isinstance(exc, WebSocketDisconnect):
+                    final_status = "error"
+                    logger.exception(
+                        "ws_session_task_failed",
+                        exc_info=exc,
+                        extra={"session_id": session_id, "uid": user.uid},
+                    )
+        finally:
+            # Record the terminal state and log first, with no `await` in
+            # between: synchronous statements cannot be interrupted by
+            # cancellation delivered while unwinding into this block, so this
+            # guarantees the session is never left stuck at status "active"
+            # even if the surrounding task is cancelled (e.g. TestClient/ASGI
+            # server tearing down the connection concurrently with our own
+            # cleanup). The remaining awaited cleanup below is best-effort.
+            session_doc.update(
+                {"ended_at": datetime.now(timezone.utc).isoformat(), "status": final_status}
+            )
+            logger.info(
+                "ws_session_disconnected",
+                extra={"session_id": session_id, "uid": user.uid, "status": final_status},
+            )
+            await bridge.close()
+            close_code = (
+                status.WS_1011_INTERNAL_ERROR
+                if final_status == "error"
+                else status.WS_1000_NORMAL_CLOSURE
+            )
+            await _close_if_connected(websocket, close_code)
