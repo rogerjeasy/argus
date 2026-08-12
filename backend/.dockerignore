@@ -1,0 +1,13 @@
+# The local Poetry virtualenv is hundreds of MB and would otherwise be shipped
+# to the daemon as build context on every build.
+.venv/
+__pycache__/
+*.py[cod]
+
+# Test-only and local-only material never belongs in the runtime image.
+app/tests/
+.pytest_cache/
+.ruff_cache/
+.env
+.env.*
+!.env.example
