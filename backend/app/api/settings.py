@@ -13,7 +13,7 @@ def _settings_doc(db: firestore.Client, uid: str):
 
 
 @router.get("/settings", response_model=UserSettings)
-async def get_user_settings(
+def get_user_settings(
     user: AuthenticatedUser = Depends(get_current_user),
     db: firestore.Client = Depends(get_firestore_client),
 ) -> UserSettings:
@@ -24,7 +24,7 @@ async def get_user_settings(
 
 
 @router.put("/settings", response_model=UserSettings)
-async def update_user_settings(
+def update_user_settings(
     payload: UserSettingsUpdate,
     user: AuthenticatedUser = Depends(get_current_user),
     db: firestore.Client = Depends(get_firestore_client),
