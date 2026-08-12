@@ -32,7 +32,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signInWithGoogle = async () => {
-    await signInWithPopup(firebaseAuth, new GoogleAuthProvider());
+    try {
+      await signInWithPopup(firebaseAuth, new GoogleAuthProvider());
+    } catch (error) {
+      console.error("Google sign-in failed", error);
+    }
   };
 
   const signOutUser = async () => {
