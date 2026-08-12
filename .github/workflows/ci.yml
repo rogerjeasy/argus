@@ -1,0 +1,131 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  id-token: write   # required for Workload Identity Federation
+
+env:
+  TF_VERSION: "1.9.8"
+  GCP_REGION: us-central1
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Poetry
+        run: pipx install poetry
+      - name: Install dependencies
+        run: poetry install
+      - name: Lint
+        run: poetry run ruff check .
+      - name: Test
+        run: poetry run pytest -v
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - name: Install backend dependencies
+        working-directory: backend
+        run: |
+          pipx install poetry
+          poetry install
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+      - name: Lint
+        working-directory: frontend
+        run: pnpm lint
+      - name: Test
+        working-directory: frontend
+        run: pnpm test
+      - name: Type check
+        working-directory: frontend
+        run: pnpm exec tsc --noEmit
+      - name: OpenAPI drift check
+        run: |
+          cd backend && poetry run uvicorn app.main:app --port 8000 &
+          npx --yes wait-on http://localhost:8000/healthz
+          cd frontend && pnpm gen:api
+          git diff --exit-code lib/api/schema.ts
+
+  terraform-plan:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/terraform/environments/dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_CI_SERVICE_ACCOUNT_EMAIL }}
+      - name: terraform fmt
+        run: terraform fmt -check -recursive ../..
+      - name: terraform init
+        run: terraform init -backend-config="bucket=${{ vars.GCP_TF_STATE_BUCKET }}"
+      - name: terraform validate
+        run: terraform validate
+      - name: terraform plan
+        run: |
+          terraform plan \
+            -var="project_id=${{ vars.GCP_PROJECT_ID }}" \
+            -var="firebase_project_id=${{ vars.GCP_PROJECT_ID }}"
+
+  deploy:
+    needs: [backend, frontend]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_CI_SERVICE_ACCOUNT_EMAIL }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
+      - name: Build and push backend image
+        run: |
+          IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/argus/argus-backend:${{ github.sha }}"
+          docker build -t "$IMAGE" backend
+          docker push "$IMAGE"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - name: terraform init
+        working-directory: infra/terraform/environments/dev
+        run: terraform init -backend-config="bucket=${{ vars.GCP_TF_STATE_BUCKET }}"
+      - name: terraform apply
+        working-directory: infra/terraform/environments/dev
+        run: |
+          terraform apply -auto-approve \
+            -var="project_id=${{ vars.GCP_PROJECT_ID }}" \
+            -var="firebase_project_id=${{ vars.GCP_PROJECT_ID }}" \
+            -var="backend_image=${{ env.IMAGE }}"
