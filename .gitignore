@@ -28,3 +28,7 @@ crash.log
 .DS_Store
 .vscode/
 .idea/
+
+# Claude Code tooling config (session/environment-specific, not project content)
+.claude/
+
