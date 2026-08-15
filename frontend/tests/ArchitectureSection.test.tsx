@@ -6,7 +6,11 @@ describe("ArchitectureSection", () => {
   it("renders the headline and the Grounding/Guardrail trust-boundary node", () => {
     render(<ArchitectureSection />);
     expect(screen.getByRole("heading", { name: /eleven core agents/i })).toBeInTheDocument();
-    expect(screen.getByText("Grounding + Guardrail gate")).toBeInTheDocument();
+    expect(
+      screen.getByRole("img", { name: /grounding and guardrail trust boundary/i })
+    ).toBeInTheDocument();
+    expect(screen.getByText("GROUNDING")).toBeInTheDocument();
+    expect(screen.getByText("+ GUARDRAIL")).toBeInTheDocument();
   });
 
   it("shows all six task domains tagged with their tier", () => {

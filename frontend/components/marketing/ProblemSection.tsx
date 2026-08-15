@@ -35,9 +35,17 @@ export function ProblemSection() {
         </div>
 
         <div className="mx-auto mt-12 grid max-w-4xl grid-cols-1 gap-4 sm:grid-cols-3">
-          <StatCallout value="2.2B" label="people worldwide live with some degree of vision impairment" />
-          <StatCallout value="43M" label="are blind, per the WHO and IAPB" />
-          <StatCallout value="0 of 5" label="leading tools hold a goal and act on it — Argus is the first" />
+          <StatCallout
+            display="2.2B"
+            countUp={{ target: 2.2, decimals: 1, suffix: "B" }}
+            label="people worldwide live with some degree of vision impairment"
+          />
+          <StatCallout
+            display="43M"
+            countUp={{ target: 43, decimals: 0, suffix: "M" }}
+            label="are blind, per the WHO and IAPB"
+          />
+          <StatCallout display="0 of 5" label="leading tools hold a goal and act on it — Argus is the first" />
         </div>
 
         <div className="mx-auto mt-16 max-w-4xl overflow-x-auto rounded-xl border border-border bg-card shadow-sm">

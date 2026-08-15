@@ -4,7 +4,7 @@ import { FlagshipSection } from "./FlagshipSection";
 
 export function FlagshipDomainsSection() {
   return (
-    <section id="domains" aria-labelledby="domains-heading" className="border-t border-border bg-secondary/40">
+    <section id="domains" aria-labelledby="domains-heading" className="border-t border-border">
       <Reveal className="mx-auto max-w-7xl px-4 py-20 sm:px-6 sm:py-28 lg:px-8">
         <div className="mx-auto max-w-2xl text-center">
           <h2 id="domains-heading" className="text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
@@ -37,6 +37,7 @@ export function FlagshipDomainsSection() {
               { speaker: "argus", text: "Refill confirmed, ready tomorrow, twelve dollar co-pay.", live: true },
             ]}
             reverse
+            tint="accent"
           />
         </div>
       </Reveal>

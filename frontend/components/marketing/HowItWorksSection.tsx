@@ -1,5 +1,8 @@
+"use client";
+
 import { Fragment } from "react";
 import { ArrowRight, Eye, Map, Navigation, RefreshCw, Target } from "lucide-react";
+import { motion, useReducedMotion, type Variants } from "framer-motion";
 import { Reveal } from "./Reveal";
 import { LoopStep, type LoopStepData } from "./LoopStep";
 
@@ -36,7 +39,26 @@ const STEPS: LoopStepData[] = [
   },
 ];
 
+const EASE = [0.16, 1, 0.3, 1] as const;
+
+const container: Variants = {
+  hidden: {},
+  show: { transition: { staggerChildren: 0.15 } },
+};
+
+const stepItem: Variants = {
+  hidden: { opacity: 0, y: 12 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.4, ease: EASE } },
+};
+
+const arrowItem: Variants = {
+  hidden: { opacity: 0, x: -6 },
+  show: { opacity: 1, x: 0, transition: { duration: 0.3, ease: EASE } },
+};
+
 export function HowItWorksSection() {
+  const prefersReducedMotion = useReducedMotion();
+
   return (
     <section id="how-it-works" aria-labelledby="how-it-works-heading" className="border-t border-border">
       <Reveal className="mx-auto max-w-7xl px-4 py-20 sm:px-6 sm:py-28 lg:px-8">
@@ -50,19 +72,26 @@ export function HowItWorksSection() {
           </p>
         </div>
 
-        <div className="mt-14 flex flex-col gap-4 lg:flex-row lg:items-stretch">
+        <motion.div
+          variants={container}
+          initial={prefersReducedMotion ? "show" : "hidden"}
+          whileInView="show"
+          viewport={{ once: true, margin: "-80px" }}
+          className="mt-14 flex flex-col gap-4 lg:flex-row lg:items-stretch"
+        >
           {STEPS.map((step, index) => (
             <Fragment key={step.step}>
-              <LoopStep {...step} />
+              <motion.div variants={stepItem} className="flex flex-1">
+                <LoopStep {...step} />
+              </motion.div>
               {index < STEPS.length - 1 ? (
-                <ArrowRight
-                  className="h-5 w-5 shrink-0 self-center rotate-90 text-muted-foreground lg:rotate-0"
-                  aria-hidden="true"
-                />
+                <motion.div variants={arrowItem} className="flex shrink-0 items-center justify-center">
+                  <ArrowRight className="h-5 w-5 rotate-90 text-muted-foreground lg:rotate-0" aria-hidden="true" />
+                </motion.div>
               ) : null}
             </Fragment>
           ))}
-        </div>
+        </motion.div>
       </Reveal>
     </section>
   );

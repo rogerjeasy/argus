@@ -1,10 +1,16 @@
+"use client";
+
 import { Bell, Mic, Vibrate } from "lucide-react";
 import { Reveal } from "./Reveal";
 import { ChannelCard } from "./ChannelCard";
 
 export function MultimodalSection() {
   return (
-    <section id="multimodal" aria-labelledby="multimodal-heading" className="border-t border-border">
+    <section
+      id="multimodal"
+      aria-labelledby="multimodal-heading"
+      className="border-t border-border bg-gradient-to-b from-primary/[0.07] via-primary/[0.02] to-transparent"
+    >
       <Reveal className="mx-auto max-w-7xl px-4 py-20 sm:px-6 sm:py-28 lg:px-8">
         <div className="mx-auto max-w-2xl text-center">
           <h2 id="multimodal-heading" className="text-balance text-3xl font-semibold tracking-tight sm:text-4xl">

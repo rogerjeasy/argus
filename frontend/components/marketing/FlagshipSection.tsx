@@ -1,6 +1,7 @@
 // frontend/components/marketing/FlagshipSection.tsx
 import { CheckCircle2 } from "lucide-react";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { cn } from "@/lib/utils";
 import { PhoneMockup } from "./PhoneMockup";
 import { CaptionFeed, type CaptionLine } from "./CaptionFeed";
 
@@ -11,9 +12,21 @@ export interface FlagshipSectionProps {
   provesLabel: string;
   lines: CaptionLine[];
   reverse?: boolean;
+  /** Faint background wash tying this flagship to its domain's existing
+   * in-product color meaning — amber for Personal Admin's "active" state.
+   * Omit for a bare canvas (Transit). */
+  tint?: "accent" | "primary";
 }
 
-export function FlagshipSection({ eyebrow, title, description, provesLabel, lines, reverse }: FlagshipSectionProps) {
+export function FlagshipSection({
+  eyebrow,
+  title,
+  description,
+  provesLabel,
+  lines,
+  reverse,
+  tint,
+}: FlagshipSectionProps) {
   const copy = (
     <div>
       <StatusBadge icon={CheckCircle2} tone="info">
@@ -33,7 +46,14 @@ export function FlagshipSection({ eyebrow, title, description, provesLabel, line
   );
 
   return (
-    <div className="grid grid-cols-1 items-center gap-10 lg:grid-cols-2 lg:gap-16">
+    <div
+      className={cn(
+        "grid grid-cols-1 items-center gap-10 lg:grid-cols-2 lg:gap-16",
+        tint && "rounded-2xl p-6 sm:p-10",
+        tint === "accent" && "bg-gradient-to-br from-accent/10 to-transparent",
+        tint === "primary" && "bg-gradient-to-br from-primary/10 to-transparent"
+      )}
+    >
       {reverse ? (
         <>
           {mockup}

@@ -1,3 +1,6 @@
+"use client";
+
+import { motion, useReducedMotion, type Variants } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 export interface CaptionLine {
@@ -6,12 +9,34 @@ export interface CaptionLine {
   live?: boolean;
 }
 
+const container: Variants = {
+  hidden: {},
+  show: { transition: { staggerChildren: 0.35, delayChildren: 0.1 } },
+};
+
+const bubble: Variants = {
+  hidden: { opacity: 0, y: 8 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.16, 1, 0.3, 1] } },
+};
+
+// Bubbles appear one at a time, like watching the transcript happen live,
+// rather than all present at once.
 export function CaptionFeed({ lines }: { lines: CaptionLine[] }) {
+  const prefersReducedMotion = useReducedMotion();
+
   return (
-    <ol aria-label="Live caption transcript" className="flex flex-col gap-3">
+    <motion.ol
+      aria-label="Live caption transcript"
+      variants={container}
+      initial={prefersReducedMotion ? "show" : "hidden"}
+      whileInView="show"
+      viewport={{ once: true, margin: "-40px" }}
+      className="flex flex-col gap-3"
+    >
       {lines.map((line, index) => (
-        <li
+        <motion.li
           key={index}
+          variants={bubble}
           className={cn(
             "flex flex-col gap-1 rounded-xl px-3 py-2 text-sm leading-snug",
             line.speaker === "argus" ? "bg-primary/10 text-foreground" : "self-end bg-secondary text-foreground"
@@ -27,8 +52,8 @@ export function CaptionFeed({ lines }: { lines: CaptionLine[] }) {
             )}
           </span>
           <span>{line.text}</span>
-        </li>
+        </motion.li>
       ))}
-    </ol>
+    </motion.ol>
   );
 }

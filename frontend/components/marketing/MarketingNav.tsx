@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Menu } from "lucide-react";
+import { motion, useReducedMotion, useScroll } from "framer-motion";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetClose, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -21,6 +22,8 @@ const NAV_LINKS = [
 export function MarketingNav() {
   const { user, loading, signInWithGoogle } = useAuth();
   const [scrolled, setScrolled] = useState(false);
+  const prefersReducedMotion = useReducedMotion();
+  const { scrollYProgress } = useScroll();
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
@@ -54,7 +57,7 @@ export function MarketingNav() {
   return (
     <header
       className={cn(
-        "sticky top-0 z-40 w-full border-b transition-colors duration-200",
+        "sticky top-0 z-40 w-full border-b transition-colors duration-200 relative",
         scrolled ? "border-border bg-background/85 backdrop-blur-sm" : "border-transparent bg-transparent"
       )}
     >
@@ -111,6 +114,13 @@ export function MarketingNav() {
           </Sheet>
         </div>
       </nav>
+      {!prefersReducedMotion && (
+        <motion.div
+          aria-hidden="true"
+          className="absolute inset-x-0 bottom-0 h-0.5 origin-left bg-primary"
+          style={{ scaleX: scrollYProgress }}
+        />
+      )}
     </header>
   );
 }

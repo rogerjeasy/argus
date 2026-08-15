@@ -37,3 +37,5 @@ firestore.indexes.json
 # Docs/specs stay local until explicitly committed
 docs/
 
+
+.superpowers/
