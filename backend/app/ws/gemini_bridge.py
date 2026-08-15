@@ -48,7 +48,19 @@ class GeminiLiveBridge:
         # boundary is enforced here instead, by only forwarding audio that
         # arrives during a turn *we* triggered via speak(). Everything else
         # is generated, then thrown away unheard.
+        #
+        # `_relay_current_turn` alone isn't enough: it only knows "a turn is
+        # currently open for relay", not which turn produced which chunk. If
+        # speak() is called (as Task 15's transcript callback does) while an
+        # unrelated turn — e.g. Gemini's automatic reply to the same raw-mic
+        # input — is still in flight, flipping the flag immediately would let
+        # that turn's remaining, unvetted chunks slip through. So speak()
+        # only starts relaying immediately at a clean turn boundary
+        # (`_turn_active` False); otherwise it defers via
+        # `_pending_speak_relay` until the in-flight turn closes.
+        self._turn_active = False
         self._relay_current_turn = False
+        self._pending_speak_relay = False
         self._pending_input_transcript = ""
 
     def set_on_input_transcript(self, callback: Callable[[str], Awaitable[None]]) -> None:
@@ -81,11 +93,19 @@ class GeminiLiveBridge:
 
     async def speak(self, text: str) -> None:
         """Send orchestrator-vetted text as a model turn for Gemini to
-        vocalize. The very next turn's audio is the only audio
-        `receive_audio()` will forward — see `_relay_current_turn`."""
+        vocalize. If no turn is currently in flight, the very next turn's
+        audio is relayed immediately. If an unrelated turn is still open
+        (e.g. Task 15 calling this from inside the transcript callback while
+        Gemini's automatic reply to that same raw-mic turn hasn't reached
+        `turn_complete` yet), relaying is deferred via
+        `_pending_speak_relay` until that turn closes — see
+        `receive_audio()`."""
         if self._live_session is None:
             raise RuntimeError("call connect() before speak()")
-        self._relay_current_turn = True
+        if self._turn_active:
+            self._pending_speak_relay = True
+        else:
+            self._relay_current_turn = True
         await self._live_session.send_client_content(
             turns=genai_types.Content(role="model", parts=[genai_types.Part(text=text)]),
             turn_complete=True,
@@ -97,6 +117,7 @@ class GeminiLiveBridge:
         async for response in self._live_session.receive():
             content = response.server_content
             if content is not None:
+                self._turn_active = True
                 transcript = content.input_transcription
                 if transcript is not None and transcript.text:
                     self._pending_input_transcript += transcript.text
@@ -107,9 +128,16 @@ class GeminiLiveBridge:
 
             if self._relay_current_turn and response.data is not None:
                 yield response.data
+            elif response.data is not None:
+                logger.debug("discarding unvetted audio chunk outside a speak() turn")
 
-            if content is not None and content.turn_complete:
-                self._relay_current_turn = False
+            if content is not None and (content.turn_complete or content.interrupted):
+                self._turn_active = False
+                if self._pending_speak_relay:
+                    self._relay_current_turn = True
+                    self._pending_speak_relay = False
+                else:
+                    self._relay_current_turn = False
 
     async def close(self) -> None:
         """Finalize the Live session, idempotently. Only `__aexit__` is

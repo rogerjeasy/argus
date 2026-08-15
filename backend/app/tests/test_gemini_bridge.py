@@ -14,9 +14,11 @@ class _FakeServerContent:
         data: bytes | None = None,
         input_transcript: tuple[str, bool] | None = None,
         turn_complete: bool = False,
+        interrupted: bool = False,
     ) -> None:
         self.data = data
         self.turn_complete = turn_complete
+        self.interrupted = interrupted
         if input_transcript is not None:
             text, finished = input_transcript
             self.input_transcription = MagicMock(text=text, finished=finished)
@@ -139,6 +141,58 @@ async def test_receive_audio_stops_relaying_after_turn_complete() -> None:
 
     received = [chunk async for chunk in bridge.receive_audio()]
     assert received == [b"vetted-1"]
+
+
+@pytest.mark.asyncio
+async def test_receive_audio_defers_relay_until_an_in_flight_turn_closes() -> None:
+    # Task 15's exact wiring: the transcript callback calls bridge.speak()
+    # from *inside* receive_audio()'s loop, while Gemini's automatic reply to
+    # the same raw-mic turn may still be delivering chunks (turn_complete not
+    # yet seen). speak() must not start relaying until that unrelated,
+    # already-in-flight turn genuinely closes — otherwise its remaining
+    # unvetted chunks would be yielded as if they were vetted.
+    replies = [
+        _FakeMessage(server_content=_FakeServerContent(data=b"auto-1", turn_complete=False), data=b"auto-1"),
+        _FakeMessage(server_content=_FakeServerContent(input_transcript=("hi", True)), data=None),
+        _FakeMessage(server_content=_FakeServerContent(data=b"auto-2", turn_complete=True), data=b"auto-2"),
+        _FakeMessage(server_content=_FakeServerContent(data=b"vetted-1", turn_complete=True), data=b"vetted-1"),
+    ]
+    fake_session = _FakeLiveSession(replies=replies)
+    fake_client = MagicMock()
+    fake_client.aio.live.connect.return_value = fake_session
+
+    bridge = GeminiLiveBridge(_settings(), client_factory=lambda: fake_client)
+
+    async def on_transcript(text: str) -> None:
+        await bridge.speak("reply")
+
+    bridge.set_on_input_transcript(on_transcript)
+    await bridge.connect()
+
+    received = [chunk async for chunk in bridge.receive_audio()]
+    assert received == [b"vetted-1"]
+    assert fake_session.client_content_sent == [{"text": "reply", "turn_complete": True}]
+
+
+@pytest.mark.asyncio
+async def test_receive_audio_resets_relay_when_a_speak_turn_is_interrupted() -> None:
+    # Barge-in can interrupt a speak()-triggered turn before it reaches
+    # turn_complete. If relay state doesn't reset on `interrupted` too, it
+    # leaks forever and forwards whatever unrelated turn comes next.
+    replies = [
+        _FakeMessage(server_content=_FakeServerContent(data=b"vetted-partial", interrupted=True), data=b"vetted-partial"),
+        _FakeMessage(server_content=_FakeServerContent(data=b"unrelated-auto", turn_complete=True), data=b"unrelated-auto"),
+    ]
+    fake_session = _FakeLiveSession(replies=replies)
+    fake_client = MagicMock()
+    fake_client.aio.live.connect.return_value = fake_session
+
+    bridge = GeminiLiveBridge(_settings(), client_factory=lambda: fake_client)
+    await bridge.connect()
+    await bridge.speak("go")
+
+    received = [chunk async for chunk in bridge.receive_audio()]
+    assert received == [b"vetted-partial"]
 
 
 @pytest.mark.asyncio
