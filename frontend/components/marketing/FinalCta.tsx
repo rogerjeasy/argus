@@ -18,7 +18,9 @@ export function FinalCta() {
         <Button
           size="lg"
           className="bg-surface-inverted-foreground text-surface-inverted hover:bg-surface-inverted-foreground/90"
-          onClick={() => void signInWithGoogle()}
+          onClick={() => {
+            void signInWithGoogle().catch((error) => console.error("Google sign-in failed", error));
+          }}
           disabled={loading}
         >
           Get started with Google

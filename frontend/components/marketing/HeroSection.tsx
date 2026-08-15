@@ -74,7 +74,13 @@ export function HeroSection() {
             pharmacy refill — and Argus perceives, plans, acts, and replans in real time until it&apos;s done.
           </motion.p>
           <motion.div variants={item} className="mt-10 flex flex-col gap-3 sm:flex-row">
-            <Button size="lg" onClick={() => void signInWithGoogle()} disabled={loading}>
+            <Button
+              size="lg"
+              onClick={() => {
+                void signInWithGoogle().catch((error) => console.error("Google sign-in failed", error));
+              }}
+              disabled={loading}
+            >
               Get started with Google
             </Button>
             <Button size="lg" variant="outline" asChild>
