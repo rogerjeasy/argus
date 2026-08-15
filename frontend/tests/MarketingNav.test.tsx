@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MarketingNav } from "../components/marketing/MarketingNav";
 import { AuthProvider } from "../lib/auth/AuthProvider";
@@ -49,5 +49,63 @@ describe("MarketingNav", () => {
 
     const ctas = await screen.findAllByRole("link", { name: "Open Argus" });
     expect(ctas[0]).toHaveAttribute("href", "/app");
+  });
+
+  it("opens mobile Sheet menu and triggers sign-in from mobile CTA when logged out", async () => {
+    renderNav();
+    authCallback?.(null);
+
+    // Click the hamburger menu to open the Sheet
+    const menuButton = screen.getByRole("button", { name: "Open menu" });
+    menuButton.click();
+
+    // Wait for the Sheet to open and render its content
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toBeInTheDocument();
+
+    // Find and click the mobile CTA within the open Sheet
+    const mobileCtasInDialog = within(dialog).getAllByRole("button", { name: "Sign in" });
+    expect(mobileCtasInDialog.length).toBeGreaterThan(0);
+    mobileCtasInDialog[0].click();
+
+    expect(signInWithPopupMock).toHaveBeenCalled();
+  });
+
+  it("renders mobile nav links in Sheet with correct hrefs and closes on navigation", async () => {
+    renderNav();
+    authCallback?.(null);
+
+    // Open the Sheet
+    const menuButton = screen.getByRole("button", { name: "Open menu" });
+    menuButton.click();
+
+    // Wait for the Sheet to open
+    const dialog = await screen.findByRole("dialog");
+
+    // Verify mobile nav link exists with correct href
+    const mobileNavLink = within(dialog).getByRole("link", { name: "How it works" });
+    expect(mobileNavLink).toHaveAttribute("href", "#how-it-works");
+
+    // Verify all other nav links are present
+    expect(within(dialog).getByRole("link", { name: "Domains" })).toHaveAttribute("href", "#domains");
+    expect(within(dialog).getByRole("link", { name: "Multimodal" })).toHaveAttribute("href", "#multimodal");
+    expect(within(dialog).getByRole("link", { name: "Architecture" })).toHaveAttribute("href", "#architecture");
+    expect(within(dialog).getByRole("link", { name: "Trust" })).toHaveAttribute("href", "#trust");
+  });
+
+  it("displays signed-in mobile CTA link in Sheet", async () => {
+    renderNav();
+    authCallback?.({ uid: "user-1" });
+
+    // Open the Sheet
+    const menuButton = screen.getByRole("button", { name: "Open menu" });
+    menuButton.click();
+
+    // Wait for the Sheet to open
+    const dialog = await screen.findByRole("dialog");
+
+    // Find the mobile CTA link within the dialog
+    const mobileCta = within(dialog).getByRole("link", { name: "Open Argus" });
+    expect(mobileCta).toHaveAttribute("href", "/app");
   });
 });
