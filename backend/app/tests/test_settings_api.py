@@ -28,3 +28,15 @@ def test_put_settings_persists_partial_update() -> None:
 
     follow_up = client.get("/api/settings")
     assert follow_up.json() == {"verbosity": "terse", "pace": "normal"}
+
+
+def test_settings_writes_to_argus_prefixed_collection() -> None:
+    fake_db = FakeFirestoreClient()
+    app.dependency_overrides[get_current_user] = lambda: AuthenticatedUser(uid="user-1", email=None)
+    app.dependency_overrides[get_firestore_client] = lambda: fake_db
+    client = TestClient(app)
+
+    client.put("/api/settings", json={"verbosity": "terse"})
+
+    stored_keys = [k for k in fake_db._store if k[0] == "argus_users"]
+    assert len(stored_keys) == 1

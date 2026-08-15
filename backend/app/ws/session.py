@@ -67,7 +67,7 @@ async def session_endpoint(
         # Every Firestore call below is a synchronous gRPC round trip. Run them
         # in a worker thread so an unrelated concurrent session's audio relay
         # keeps flowing while this one talks to Firestore.
-        session_doc = db.collection("sessions").document(session_id)
+        session_doc = db.collection("argus_sessions").document(session_id)
         await run_in_threadpool(
             session_doc.set,
             {

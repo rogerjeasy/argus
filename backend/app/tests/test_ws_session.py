@@ -103,7 +103,7 @@ def test_ws_session_relays_audio_when_authenticated(monkeypatch) -> None:
         assert response == b"spoken-response"
 
     assert stub_bridge.sent == [b"mic-audio"]
-    stored = [v for k, v in fake_db._store.items() if k[0] == "sessions"]
+    stored = [v for k, v in fake_db._store.items() if k[0] == "argus_sessions"]
     assert len(stored) == 1
     assert stored[0]["uid"] == "user-1"
     assert stored[0]["status"] == "closed"
@@ -122,7 +122,7 @@ def test_ws_session_marks_error_when_gemini_connect_fails(monkeypatch) -> None:
         with pytest.raises(Exception):
             websocket.receive_bytes()
 
-    stored = [v for k, v in fake_db._store.items() if k[0] == "sessions"]
+    stored = [v for k, v in fake_db._store.items() if k[0] == "argus_sessions"]
     assert len(stored) == 1
     assert stored[0]["uid"] == "user-2"
     assert stored[0]["status"] == "error"
@@ -143,7 +143,7 @@ def test_ws_session_closes_when_gemini_drops_mid_session(monkeypatch) -> None:
             websocket.receive_bytes()
 
     assert dropping_bridge.closed is True
-    stored = [v for k, v in fake_db._store.items() if k[0] == "sessions"]
+    stored = [v for k, v in fake_db._store.items() if k[0] == "argus_sessions"]
     assert len(stored) == 1
     assert stored[0]["uid"] == "user-3"
     assert stored[0]["status"] == "error"
