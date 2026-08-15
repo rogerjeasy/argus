@@ -2,23 +2,39 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import { AuthDivider } from "@/components/auth/AuthDivider";
+import { AuthFormError } from "@/components/auth/AuthFormError";
 import { AuthShell } from "@/components/auth/AuthShell";
 import { GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
 import { SignInForm } from "@/components/auth/SignInForm";
 import { useAuth } from "@/lib/auth/AuthProvider";
+import { firebaseAuthErrorMessage } from "@/lib/auth/errors";
 
 export default function SignInPage() {
   const router = useRouter();
   const { user, loading, signInWithGoogle } = useAuth();
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [googleError, setGoogleError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loading && user) {
       router.replace("/app");
     }
   }, [loading, user, router]);
+
+  const handleGoogleSignIn = async () => {
+    setGoogleError(null);
+    setGoogleLoading(true);
+    try {
+      await signInWithGoogle();
+    } catch (error) {
+      setGoogleError(firebaseAuthErrorMessage(error));
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
 
   return (
     <AuthShell>
@@ -27,9 +43,10 @@ export default function SignInPage() {
           <h1 className="text-3xl font-semibold tracking-tight text-foreground">Welcome back</h1>
           <p className="text-muted-foreground">Sign in to continue to Argus.</p>
         </div>
-        <GoogleSignInButton loading={loading} onClick={() => void signInWithGoogle()}>
+        <GoogleSignInButton loading={googleLoading} onClick={() => void handleGoogleSignIn()}>
           Continue with Google
         </GoogleSignInButton>
+        <AuthFormError message={googleError} />
         <AuthDivider />
         <SignInForm onSuccess={() => router.replace("/app")} />
         <p className="text-center text-sm text-muted-foreground">

@@ -53,7 +53,7 @@ describe("AuthProvider", () => {
     await waitFor(() => expect(screen.getByTestId("probe").textContent).toBe("signed-out"));
   });
 
-  it("swallows a signInWithPopup rejection instead of throwing", async () => {
+  it("propagates a signInWithGoogle rejection so the caller's form can show it", async () => {
     vi.mocked(signInWithPopup).mockRejectedValue(new Error("popup closed by user"));
 
     render(
@@ -63,7 +63,7 @@ describe("AuthProvider", () => {
     );
     await waitFor(() => expect(screen.getByTestId("probe").textContent).toBe("signed-out"));
 
-    await expect(capturedAuth?.signInWithGoogle()).resolves.toBeUndefined();
+    await expect(capturedAuth?.signInWithGoogle()).rejects.toThrow("popup closed by user");
     // loading should not be stuck as a side effect of the rejected sign-in attempt.
     expect(screen.getByTestId("probe").textContent).toBe("signed-out");
   });

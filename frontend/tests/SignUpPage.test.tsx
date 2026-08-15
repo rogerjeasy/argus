@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import SignUpPage from "../app/sign-up/page";
 import { useAuth } from "../lib/auth/AuthProvider";
@@ -43,5 +43,24 @@ describe("SignUpPage", () => {
     render(<SignUpPage />);
 
     expect(replace).toHaveBeenCalledWith("/app");
+  });
+
+  it("shows a mapped error when Google sign-in fails", async () => {
+    vi.mocked(useAuth).mockReturnValue({
+      user: null,
+      loading: false,
+      signInWithGoogle: vi.fn().mockRejectedValue({ code: "auth/too-many-requests" }),
+      signInWithEmail: vi.fn(),
+      signUpWithEmail: vi.fn(),
+      signOutUser: vi.fn(),
+    });
+
+    render(<SignUpPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue with Google" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent("Too many attempts. Please wait a moment and try again.")
+    );
   });
 });

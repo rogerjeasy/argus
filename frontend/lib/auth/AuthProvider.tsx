@@ -56,12 +56,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signInWithGoogle = async () => {
-    try {
-      const credential = await signInWithPopup(firebaseAuth, new GoogleAuthProvider());
-      await syncProfile(credential.user);
-    } catch (error) {
-      console.error("Google sign-in failed", error);
-    }
+    const credential = await signInWithPopup(firebaseAuth, new GoogleAuthProvider());
+    await syncProfile(credential.user);
   };
 
   const signInWithEmail = async (email: string, password: string) => {
