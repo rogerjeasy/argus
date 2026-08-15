@@ -16,8 +16,8 @@ export function LoopStep({ step, icon: Icon, title, description }: LoopStepData)
         </span>
         <Icon className="h-5 w-5 text-primary" aria-hidden="true" />
       </div>
-      <h3 className="text-lg font-semibold tracking-tight">{title}</h3>
-      <p className="text-sm text-muted-foreground">{description}</p>
+      <h3 className="text-balance text-lg font-semibold tracking-tight">{title}</h3>
+      <p className="text-pretty text-sm text-muted-foreground">{description}</p>
     </div>
   );
 }
