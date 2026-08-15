@@ -1,5 +1,8 @@
 from datetime import datetime, timezone
 
+import pytest
+from pydantic import ValidationError
+
 from app.models.agent_events import (
     DivergenceSignal,
     EscalationEvent,
@@ -29,15 +32,42 @@ def test_plan_step_action_type_is_free_text_but_documented() -> None:
     assert step.payload["category"] == "stub-guidance"
 
 
+def test_plan_step_action_type_rejects_invalid_value() -> None:
+    with pytest.raises(ValidationError):
+        PlanStep(
+            step_id="step-1",
+            domain_id="stub",
+            description="Head to platform 4",
+            action_type="fly",
+            requires_confirmation=False,
+            payload={},
+        )
+
+
 def test_guardrail_decision_states() -> None:
     for decision in ("approved", "requires_confirmation", "denied"):
         GuardrailDecision(step_id="step-1", decision=decision, reason="test")
+
+
+def test_guardrail_decision_rejects_invalid_value() -> None:
+    with pytest.raises(ValidationError):
+        GuardrailDecision(step_id="step-1", decision="maybe", reason="test")
 
 
 def test_guidance_output_haptic_and_earcon_are_optional() -> None:
     output = GuidanceOutput(session_id="s1", text="Head to platform 4")
     assert output.haptic_pattern is None
     assert output.earcon is None
+
+
+def test_guidance_output_rejects_invalid_haptic_pattern() -> None:
+    with pytest.raises(ValidationError):
+        GuidanceOutput(session_id="s1", text="Head to platform 4", haptic_pattern="pattern-buzz")
+
+
+def test_guidance_output_rejects_invalid_earcon() -> None:
+    with pytest.raises(ValidationError):
+        GuidanceOutput(session_id="s1", text="Head to platform 4", earcon="earcon-honk")
 
 
 def test_grounded_fact_requires_as_of() -> None:
