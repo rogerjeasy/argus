@@ -44,9 +44,9 @@
   /* Marketing-page-only additions — the one dark "anchor" band (Architecture
    * section) and a deeper gradient stop for primary. See
    * docs/specs/2026-08-15-marketing-homepage-visual-refresh-design.md §2.
-   * Reuses the already-shipped dark-theme background/foreground values
-   * rather than inventing a new color. */
-  --surface-inverted: 215 28% 8%;
+   * A lighter, slate-navy dark rather than near-black — still a clear
+   * anchor against the light page, without reading as harsh. */
+  --surface-inverted: 215 26% 16%;
   --surface-inverted-foreground: 210 15% 92%;
   --primary-deep: 198 70% 18%;
 }
@@ -86,9 +86,10 @@
   --input: 215 16% 20%;
   --ring: 198 60% 55%;
 
-  /* One step deeper than --background so the Architecture anchor band still
-   * reads as distinct against a page that's already dark. */
-  --surface-inverted: 215 32% 5%;
+  /* A touch lighter than --background so the Architecture anchor band still
+   * reads as a distinct, raised panel against a page that's already dark —
+   * a lighter slate-navy rather than the near-black this used to be. */
+  --surface-inverted: 215 24% 13%;
   --surface-inverted-foreground: 210 15% 92%;
   --primary-deep: 198 55% 30%;
 }
