@@ -193,3 +193,24 @@ body {
   animation-timing-function: ease-out;
   --tw-enter-opacity: 0;
 }
+
+/* WatchingRings motif — a slow, deliberate pulse. "Deliberate, settled,"
+ * never twitchy, per the brand's stated motion character. The global
+ * prefers-reduced-motion rule above already collapses this like every
+ * other animation on the page. */
+@keyframes watching-pulse {
+  0%,
+  100% {
+    transform: rotate(0deg) scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: rotate(4deg) scale(1.02);
+    opacity: 0.85;
+  }
+}
+
+.animate-watching-rings {
+  animation: watching-pulse 11s ease-in-out infinite;
+  transform-origin: center;
+}
