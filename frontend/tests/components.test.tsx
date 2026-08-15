@@ -5,6 +5,7 @@ import { Button } from "../components/ui/button";
 import { StatusBadge } from "../components/ui/status-badge";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
+import { Alert } from "../components/ui/alert";
 
 describe("Button", () => {
   it("renders as a button with the default variant classes", () => {
@@ -59,5 +60,14 @@ describe("Label", () => {
       </>
     );
     expect(screen.getByLabelText("Email")).toBeInTheDocument();
+  });
+});
+
+describe("Alert", () => {
+  it("renders as an alert role with destructive styling", () => {
+    render(<Alert variant="destructive">Something went wrong</Alert>);
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toBe("Something went wrong");
+    expect(alert.className).toContain("text-destructive");
   });
 });
