@@ -12,11 +12,11 @@ const DOMAIN_TIERS = [
   { name: "Document & Currency Reading", tier: "Tier 3" },
 ] as const;
 
-// The one dramatic anchor in the page's background rhythm (see the
-// visual-refresh design doc §3) — full bg-surface-inverted band, the
-// darkest section on the page regardless of light/dark app theme, so
-// every piece of text and every SVG stroke here explicitly targets
-// text-surface-inverted-foreground rather than the ambient foreground.
+// The one dramatic anchor in the page's background rhythm — full
+// bg-surface-inverted band, the darkest section on the page regardless of
+// light/dark app theme, so every piece of text and every SVG stroke here
+// explicitly targets text-surface-inverted-foreground rather than the
+// ambient foreground.
 export function ArchitectureSection() {
   return (
     <section

@@ -1,8 +1,10 @@
 @import "tailwindcss";
 
-/* Argus Design Tokens — adapted from docs/design/frontend-design-principles.md.
- * See docs/specs/2026-08-12-phase0-platform-foundation-design.md §7.3 for the
- * rationale behind each deliberate deviation from the source system. */
+/* Argus design tokens — semantic CSS custom properties consumed through
+ * Tailwind's theme layer. Components reference these by name (bg-primary,
+ * text-muted-foreground, ...) and never a raw hex value, so a full
+ * light/dark/high-contrast re-skin is a token edit here, not a
+ * find-and-replace across every component. */
 
 :root {
   --background: 210 20% 98%;      /* #F7F9FA */
@@ -42,10 +44,9 @@
   --radius: 0.5rem;
 
   /* Marketing-page-only additions — the one dark "anchor" band (Architecture
-   * section) and a deeper gradient stop for primary. See
-   * docs/specs/2026-08-15-marketing-homepage-visual-refresh-design.md §2.
-   * A lighter, slate-navy dark rather than near-black — still a clear
-   * anchor against the light page, without reading as harsh. */
+   * section) and a deeper gradient stop for primary. A lighter, slate-navy
+   * dark rather than near-black — still a clear anchor against the light
+   * page, without reading as harsh. */
   --surface-inverted: 215 26% 16%;
   --surface-inverted-foreground: 210 15% 92%;
   --primary-deep: 198 70% 18%;
@@ -187,7 +188,7 @@ body {
   background-color: hsl(var(--background));
   color: hsl(var(--foreground));
   font-family: var(--font-sans), system-ui, sans-serif;
-  font-size: 1.125rem;   /* 18px base — raised floor, design spec §7.3 */
+  font-size: 1.125rem;   /* 18px base — raised floor for readability, part of the audience is older adults */
   line-height: 1.6;
 }
 

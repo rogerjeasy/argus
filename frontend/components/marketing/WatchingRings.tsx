@@ -6,10 +6,10 @@ import { cn } from "@/lib/utils";
  * decorative in every usage, so it's always aria-hidden.
  *
  * `rich` adds a second, thinner ring with a slow gradient-sweep stroke —
- * reserved for hero scale, per the visual-refresh design (§6): the motif
- * stays simpler at the smaller CTA/footer scale so it doesn't compete
- * there. Independent of `animated`, and respects the same global
- * prefers-reduced-motion collapse everything else on the page does.
+ * reserved for hero scale, since the motif stays simpler at the smaller
+ * CTA/footer scale so it doesn't compete there. Independent of `animated`,
+ * and respects the same global prefers-reduced-motion collapse everything
+ * else on the page does.
  */
 export function WatchingRings({
   className,
