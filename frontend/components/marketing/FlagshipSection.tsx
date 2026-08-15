@@ -22,7 +22,7 @@ export function FlagshipSection({ eyebrow, title, description, provesLabel, line
       <p className="mt-4 text-sm font-medium uppercase tracking-wide text-primary">{eyebrow}</p>
       <h3 className="mt-2 text-balance text-2xl font-semibold tracking-tight sm:text-3xl">{title}</h3>
       <p className="mt-4 text-pretty text-muted-foreground">{description}</p>
-      <p className="mt-4 text-sm font-medium text-foreground">Proves: {provesLabel}</p>
+      <p className="mt-4 text-sm font-medium text-foreground text-pretty">Proves: {provesLabel}</p>
     </div>
   );
 
