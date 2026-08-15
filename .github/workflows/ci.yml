@@ -66,7 +66,7 @@ jobs:
       - name: OpenAPI drift check
         run: |
           cd backend && poetry run uvicorn app.main:app --port 8000 &
-          npx --yes wait-on http://localhost:8000/healthz
+          npx --yes wait-on http-get://localhost:8000/healthz
           cd frontend && pnpm gen:api
           git diff --exit-code lib/api/schema.ts
 
