@@ -34,5 +34,5 @@ def sync_current_user_profile(
         created_at=existing.get("created_at", now),
         last_login_at=now,
     )
-    doc_ref.set(profile.model_dump(mode="json"))
+    doc_ref.set(profile.model_dump(mode="json"), merge=True)
     return profile

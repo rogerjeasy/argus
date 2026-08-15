@@ -59,6 +59,19 @@ def test_put_users_me_writes_to_argus_users_collection() -> None:
     assert stored_keys == [("argus_users", "user-1")]
 
 
+def test_put_users_me_preserves_unmodeled_fields_via_merge() -> None:
+    fake_db = FakeFirestoreClient()
+    fake_db._store[("argus_users", "user-1")] = {"some_future_field": "value"}
+    client = _client(fake_db)
+
+    response = client.put("/api/users/me", json={"display_name": "Ada Lovelace"})
+
+    assert response.status_code == 200
+    stored = fake_db._store[("argus_users", "user-1")]
+    assert stored["some_future_field"] == "value"
+    assert stored["display_name"] == "Ada Lovelace"
+
+
 def test_put_users_me_rejects_unauthenticated_request() -> None:
     fake_db = FakeFirestoreClient()
     app.dependency_overrides[get_firestore_client] = lambda: fake_db
