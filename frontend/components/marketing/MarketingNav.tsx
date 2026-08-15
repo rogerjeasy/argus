@@ -20,7 +20,7 @@ const NAV_LINKS = [
 ] as const;
 
 export function MarketingNav() {
-  const { user, loading, signInWithGoogle } = useAuth();
+  const { user } = useAuth();
   const [scrolled, setScrolled] = useState(false);
   const prefersReducedMotion = useReducedMotion();
   const { scrollYProgress } = useScroll();
@@ -34,23 +34,15 @@ export function MarketingNav() {
 
   const ctaLabel = user ? "Open Argus" : "Sign in";
 
-  const desktopCta = user ? (
+  const desktopCta = (
     <Button asChild>
-      <Link href="/app">{ctaLabel}</Link>
-    </Button>
-  ) : (
-    <Button onClick={() => void signInWithGoogle()} disabled={loading}>
-      {ctaLabel}
+      <Link href={user ? "/app" : "/sign-in"}>{ctaLabel}</Link>
     </Button>
   );
 
-  const mobileCta = user ? (
+  const mobileCta = (
     <Button asChild size="lg" className="w-full">
-      <Link href="/app">{ctaLabel}</Link>
-    </Button>
-  ) : (
-    <Button size="lg" className="w-full" onClick={() => void signInWithGoogle()} disabled={loading}>
-      {ctaLabel}
+      <Link href={user ? "/app" : "/sign-in"}>{ctaLabel}</Link>
     </Button>
   );
 

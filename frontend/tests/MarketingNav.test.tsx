@@ -34,13 +34,12 @@ describe("MarketingNav", () => {
     signInWithPopupMock.mockReset();
   });
 
-  it("triggers Google sign-in when a logged-out visitor clicks the CTA", async () => {
+  it("links a logged-out visitor to /sign-in", async () => {
     renderNav();
     authCallback?.(null);
-    const ctas = await waitFor(() => screen.getAllByRole("button", { name: "Sign in" }));
+    const ctas = await waitFor(() => screen.getAllByRole("link", { name: "Sign in" }));
 
-    fireEvent.click(ctas[0]);
-    expect(signInWithPopupMock).toHaveBeenCalled();
+    expect(ctas[0]).toHaveAttribute("href", "/sign-in");
   });
 
   it("links a signed-in visitor to /app instead of prompting sign-in", async () => {
@@ -51,24 +50,18 @@ describe("MarketingNav", () => {
     expect(ctas[0]).toHaveAttribute("href", "/app");
   });
 
-  it("opens mobile Sheet menu and triggers sign-in from mobile CTA when logged out", async () => {
+  it("opens mobile Sheet menu and links to /sign-in from mobile CTA when logged out", async () => {
     renderNav();
     authCallback?.(null);
 
-    // Click the hamburger menu to open the Sheet
     const menuButton = screen.getByRole("button", { name: "Open menu" });
     fireEvent.click(menuButton);
 
-    // Wait for the Sheet to open and render its content
     const dialog = await screen.findByRole("dialog");
     expect(dialog).toBeInTheDocument();
 
-    // Find and click the mobile CTA within the open Sheet
-    const mobileCtasInDialog = within(dialog).getAllByRole("button", { name: "Sign in" });
-    expect(mobileCtasInDialog.length).toBeGreaterThan(0);
-    fireEvent.click(mobileCtasInDialog[0]);
-
-    expect(signInWithPopupMock).toHaveBeenCalled();
+    const mobileCtaLink = within(dialog).getByRole("link", { name: "Sign in" });
+    expect(mobileCtaLink).toHaveAttribute("href", "/sign-in");
   });
 
   it("renders mobile nav links in Sheet with correct hrefs and closes on navigation", async () => {
