@@ -14,9 +14,10 @@ class InvalidTokenError(Exception):
 
 
 class AuthenticatedUser:
-    def __init__(self, uid: str, email: str | None) -> None:
+    def __init__(self, uid: str, email: str | None, provider: str | None = None) -> None:
         self.uid = uid
         self.email = email
+        self.provider = provider
 
 
 def _init_firebase_app() -> firebase_admin.App:
@@ -34,7 +35,8 @@ def verify_id_token_string(token: str) -> AuthenticatedUser:
         decoded = firebase_auth.verify_id_token(token)
     except Exception as exc:
         raise InvalidTokenError("Invalid or expired Firebase ID token") from exc
-    return AuthenticatedUser(uid=decoded["uid"], email=decoded.get("email"))
+    provider = decoded.get("firebase", {}).get("sign_in_provider")
+    return AuthenticatedUser(uid=decoded["uid"], email=decoded.get("email"), provider=provider)
 
 
 async def get_current_user(

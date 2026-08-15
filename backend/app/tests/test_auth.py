@@ -37,3 +37,22 @@ async def test_get_current_user_raises_401_on_invalid_token() -> None:
         with pytest.raises(HTTPException) as exc_info:
             await get_current_user(credentials=creds)
     assert exc_info.value.status_code == 401
+
+
+def test_verify_id_token_string_extracts_sign_in_provider() -> None:
+    decoded = {
+        "uid": "user-1",
+        "email": "a@example.com",
+        "firebase": {"sign_in_provider": "password"},
+    }
+    with patch("app.core.auth.firebase_auth.verify_id_token", return_value=decoded):
+        with patch("app.core.auth._init_firebase_app"):
+            user = verify_id_token_string("valid-token")
+    assert user.provider == "password"
+
+
+def test_verify_id_token_string_provider_defaults_to_none_when_absent() -> None:
+    with patch("app.core.auth.firebase_auth.verify_id_token", return_value={"uid": "user-1", "email": None}):
+        with patch("app.core.auth._init_firebase_app"):
+            user = verify_id_token_string("valid-token")
+    assert user.provider is None
