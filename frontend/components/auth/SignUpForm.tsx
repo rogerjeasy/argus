@@ -6,7 +6,15 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import {
+  Form,
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { firebaseAuthErrorMessage } from "@/lib/auth/errors";
@@ -93,7 +101,7 @@ export function SignUpForm({ onSuccess }: { onSuccess: () => void }) {
               <FormControl>
                 <PasswordField autoComplete="new-password" {...field} />
               </FormControl>
-              <p className="text-sm text-muted-foreground">At least 8 characters, with a letter and a number.</p>
+              <FormDescription>At least 8 characters, with a letter and a number.</FormDescription>
               <FormMessage />
             </FormItem>
           )}
