@@ -1,8 +1,10 @@
 @import "tailwindcss";
 
-/* Argus Design Tokens — adapted from docs/design/frontend-design-principles.md.
- * See docs/specs/2026-08-12-phase0-platform-foundation-design.md §7.3 for the
- * rationale behind each deliberate deviation from the source system. */
+/* Argus design tokens — semantic CSS custom properties consumed through
+ * Tailwind's theme layer. Components reference these by name (bg-primary,
+ * text-muted-foreground, ...) and never a raw hex value, so a full
+ * light/dark/high-contrast re-skin is a token edit here, not a
+ * find-and-replace across every component. */
 
 :root {
   --background: 210 20% 98%;      /* #F7F9FA */
@@ -40,6 +42,14 @@
   --ring: 198 65% 32%;
 
   --radius: 0.5rem;
+
+  /* Marketing-page-only additions — the one dark "anchor" band (Architecture
+   * section) and a deeper gradient stop for primary. A lighter, slate-navy
+   * dark rather than near-black — still a clear anchor against the light
+   * page, without reading as harsh. */
+  --surface-inverted: 215 26% 16%;
+  --surface-inverted-foreground: 210 15% 92%;
+  --primary-deep: 198 70% 18%;
 }
 
 [data-theme="dark"] {
@@ -76,6 +86,13 @@
   --border: 215 16% 20%;
   --input: 215 16% 20%;
   --ring: 198 60% 55%;
+
+  /* A touch lighter than --background so the Architecture anchor band still
+   * reads as a distinct, raised panel against a page that's already dark —
+   * a lighter slate-navy rather than the near-black this used to be. */
+  --surface-inverted: 215 24% 13%;
+  --surface-inverted-foreground: 210 15% 92%;
+  --primary-deep: 198 55% 30%;
 }
 
 /* Maximum-contrast theme for low-vision users. No tinted/low-opacity surfaces
@@ -116,6 +133,14 @@
   --border: 0 0% 0%;
   --input: 0 0% 0%;
   --ring: 0 0% 0%;
+
+  /* No tinted or gradient surfaces in this theme, ever (see the note at the
+   * top of this block). The Architecture anchor collapses to a flat
+   * foreground/background swap, and --primary-deep is set equal to
+   * --primary so any two-stop gradient using both silently becomes flat. */
+  --surface-inverted: 0 0% 0%;
+  --surface-inverted-foreground: 0 0% 100%;
+  --primary-deep: 210 100% 30%;
 }
 
 @theme inline {
@@ -142,9 +167,13 @@
   --color-border: hsl(var(--border));
   --color-input: hsl(var(--input));
   --color-ring: hsl(var(--ring));
+  --color-surface-inverted: hsl(var(--surface-inverted));
+  --color-surface-inverted-foreground: hsl(var(--surface-inverted-foreground));
+  --color-primary-deep: hsl(var(--primary-deep));
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 0.25rem);
   --font-sans: var(--font-inter);
+  --font-mono: var(--font-geist-mono);
 }
 
 * {
@@ -159,7 +188,7 @@ body {
   background-color: hsl(var(--background));
   color: hsl(var(--foreground));
   font-family: var(--font-sans), system-ui, sans-serif;
-  font-size: 1.125rem;   /* 18px base — raised floor, design spec §7.3 */
+  font-size: 1.125rem;   /* 18px base — raised floor for readability, part of the audience is older adults */
   line-height: 1.6;
 }
 
@@ -192,4 +221,50 @@ body {
   animation-duration: 200ms;
   animation-timing-function: ease-out;
   --tw-enter-opacity: 0;
+}
+
+/* WatchingRings motif — a slow, deliberate pulse. "Deliberate, settled,"
+ * never twitchy, per the brand's stated motion character. The global
+ * prefers-reduced-motion rule above already collapses this like every
+ * other animation on the page. */
+@keyframes watching-pulse {
+  0%,
+  100% {
+    transform: rotate(0deg) scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: rotate(4deg) scale(1.02);
+    opacity: 0.85;
+  }
+}
+
+.animate-watching-rings {
+  animation: watching-pulse 11s ease-in-out infinite;
+  transform-origin: center;
+}
+
+/* The rich WatchingRings' outer sweep ring — a slow, continuous rotation
+ * of the gradient stroke defined in the component. Independent timing from
+ * the pulse above so the two layers don't sync into something twitchy. */
+@keyframes watching-sweep {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-watching-sweep {
+  animation: watching-sweep 16s linear infinite;
+  transform-origin: center;
+}
+
+/* Dot-grid backdrop for the Architecture section's engineering-blueprint
+ * diagram — a texture, not a decoration competing for attention, so it's
+ * a flat low-opacity radial-gradient rather than an SVG pattern. */
+.bg-dot-grid {
+  background-image: radial-gradient(hsl(var(--surface-inverted-foreground) / 0.14) 1px, transparent 1px);
+  background-size: 20px 20px;
 }

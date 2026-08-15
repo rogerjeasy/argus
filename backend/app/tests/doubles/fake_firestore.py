@@ -18,8 +18,13 @@ class FakeDocument:
     def get(self) -> FakeSnapshot:
         return FakeSnapshot(self._store.get(self._key))
 
-    def set(self, data: dict) -> None:
-        self._store[self._key] = dict(data)
+    def set(self, data: dict, merge: bool = False) -> None:
+        if merge:
+            existing = self._store.get(self._key, {})
+            existing.update(data)
+            self._store[self._key] = existing
+        else:
+            self._store[self._key] = dict(data)
 
     def update(self, data: dict) -> None:
         existing = self._store.get(self._key, {})

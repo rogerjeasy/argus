@@ -1,17 +1,61 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+
+import { AuthDivider } from "@/components/auth/AuthDivider";
+import { AuthFormError } from "@/components/auth/AuthFormError";
+import { AuthShell } from "@/components/auth/AuthShell";
+import { GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
+import { SignInForm } from "@/components/auth/SignInForm";
 import { useAuth } from "@/lib/auth/AuthProvider";
+import { firebaseAuthErrorMessage } from "@/lib/auth/errors";
 
 export default function SignInPage() {
-  const { signInWithGoogle, loading } = useAuth();
+  const router = useRouter();
+  const { user, loading, signInWithGoogle } = useAuth();
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [googleError, setGoogleError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!loading && user) {
+      router.replace("/app");
+    }
+  }, [loading, user, router]);
+
+  const handleGoogleSignIn = async () => {
+    setGoogleError(null);
+    setGoogleLoading(true);
+    try {
+      await signInWithGoogle();
+    } catch (error) {
+      setGoogleError(firebaseAuthErrorMessage(error));
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-4">
-      <h1 className="text-2xl font-semibold">Sign in to Argus</h1>
-      <Button onClick={() => void signInWithGoogle()} disabled={loading} size="lg">
-        Sign in with Google
-      </Button>
-    </main>
+    <AuthShell>
+      <div className="space-y-6">
+        <div className="space-y-2">
+          <h1 className="text-3xl font-semibold tracking-tight text-foreground">Welcome back</h1>
+          <p className="text-muted-foreground">Sign in to continue to Argus.</p>
+        </div>
+        <GoogleSignInButton loading={googleLoading} onClick={() => void handleGoogleSignIn()}>
+          Continue with Google
+        </GoogleSignInButton>
+        <AuthFormError message={googleError} />
+        <AuthDivider />
+        <SignInForm onSuccess={() => router.replace("/app")} />
+        <p className="text-center text-sm text-muted-foreground">
+          New to Argus?{" "}
+          <Link href="/sign-up" className="font-medium text-primary hover:underline">
+            Create an account
+          </Link>
+        </p>
+      </div>
+    </AuthShell>
   );
 }

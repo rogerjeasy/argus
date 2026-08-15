@@ -9,7 +9,7 @@ router = APIRouter(prefix="/api", tags=["settings"])
 
 
 def _settings_doc(db: firestore.Client, uid: str):
-    return db.collection("users").document(uid).collection("settings").document("preferences")
+    return db.collection("argus_users").document(uid).collection("settings").document("preferences")
 
 
 @router.get("/settings", response_model=UserSettings)
