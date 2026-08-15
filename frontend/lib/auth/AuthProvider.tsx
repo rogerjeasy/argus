@@ -2,22 +2,46 @@
 
 import {
   GoogleAuthProvider,
+  createUserWithEmailAndPassword,
   onAuthStateChanged,
+  signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
+  updateProfile,
   type User,
 } from "firebase/auth";
 import { createContext, useContext, useEffect, useState } from "react";
+import { apiFetch } from "@/lib/api/client";
 import { firebaseAuth } from "./firebase";
 
 type AuthContextValue = {
   user: User | null;
   loading: boolean;
   signInWithGoogle: () => Promise<void>;
+  signInWithEmail: (email: string, password: string) => Promise<void>;
+  signUpWithEmail: (email: string, password: string, displayName: string) => Promise<void>;
   signOutUser: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+
+async function syncProfile(user: User): Promise<void> {
+  try {
+    const token = await user.getIdToken();
+    await apiFetch("/api/users/me", {
+      method: "PUT",
+      token,
+      body: JSON.stringify({
+        display_name: user.displayName,
+        photo_url: user.photoURL,
+      }),
+    });
+  } catch (error) {
+    // A profile-sync hiccup must not lock someone who just successfully
+    // authenticated out of the app they're trying to reach.
+    console.error("Profile sync failed", error);
+  }
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -33,10 +57,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signInWithGoogle = async () => {
     try {
-      await signInWithPopup(firebaseAuth, new GoogleAuthProvider());
+      const credential = await signInWithPopup(firebaseAuth, new GoogleAuthProvider());
+      await syncProfile(credential.user);
     } catch (error) {
       console.error("Google sign-in failed", error);
     }
+  };
+
+  const signInWithEmail = async (email: string, password: string) => {
+    const credential = await signInWithEmailAndPassword(firebaseAuth, email, password);
+    await syncProfile(credential.user);
+  };
+
+  const signUpWithEmail = async (email: string, password: string, displayName: string) => {
+    const credential = await createUserWithEmailAndPassword(firebaseAuth, email, password);
+    await updateProfile(credential.user, { displayName });
+    await syncProfile(credential.user);
   };
 
   const signOutUser = async () => {
@@ -44,7 +80,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signInWithGoogle, signOutUser }}>
+    <AuthContext.Provider
+      value={{ user, loading, signInWithGoogle, signInWithEmail, signUpWithEmail, signOutUser }}
+    >
       {children}
     </AuthContext.Provider>
   );
