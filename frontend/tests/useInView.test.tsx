@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useInView } from "../lib/hooks/useInView";
 
@@ -66,5 +66,19 @@ describe("useInView", () => {
 
     expect(screen.getByTestId("probe").textContent).toBe("visible");
     expect(observe.mock.calls.length).toBe(observeCallsAfterFirstFlip);
+  });
+
+  it("flips to visible immediately when IntersectionObserver is unavailable", async () => {
+    vi.unstubAllGlobals();
+    vi.stubGlobal("IntersectionObserver", undefined);
+
+    render(<Probe />);
+    expect(observe).not.toHaveBeenCalled();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("probe").textContent).toBe("visible");
+    });
+
+    expect(observe).not.toHaveBeenCalled();
   });
 });
