@@ -40,6 +40,12 @@ export function useInView<T extends HTMLElement>(options?: IntersectionObserverI
 
     observer.observe(node);
     return () => observer.disconnect();
+    // `inView` is deliberately omitted: the guard clause above already
+    // early-returns once it's true, so re-running this effect on that
+    // transition would only re-invoke the cleanup and disconnect an
+    // already-disconnected observer a second time. Adding it back
+    // re-introduces that redundant double-disconnect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [options]);
 
   return { ref, inView };
