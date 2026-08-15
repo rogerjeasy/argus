@@ -69,7 +69,7 @@ export function MarketingNav() {
             <li key={link.href}>
               <a
                 href={link.href}
-                className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+                className="inline-flex min-h-11 -mx-2 items-center px-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
               >
                 {link.label}
               </a>

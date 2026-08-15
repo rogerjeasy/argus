@@ -20,7 +20,10 @@ export function MarketingFooter() {
         <ul className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
           {FOOTER_LINKS.map((link) => (
             <li key={link.href}>
-              <a href={link.href} className="text-sm text-muted-foreground transition-colors hover:text-foreground">
+              <a
+                href={link.href}
+                className="inline-flex min-h-11 -mx-2 items-center px-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+              >
                 {link.label}
               </a>
             </li>

@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MarketingNav } from "../components/marketing/MarketingNav";
 import { AuthProvider } from "../lib/auth/AuthProvider";
@@ -39,7 +39,7 @@ describe("MarketingNav", () => {
     authCallback?.(null);
     const ctas = await waitFor(() => screen.getAllByRole("button", { name: "Sign in" }));
 
-    ctas[0].click();
+    fireEvent.click(ctas[0]);
     expect(signInWithPopupMock).toHaveBeenCalled();
   });
 
@@ -57,7 +57,7 @@ describe("MarketingNav", () => {
 
     // Click the hamburger menu to open the Sheet
     const menuButton = screen.getByRole("button", { name: "Open menu" });
-    menuButton.click();
+    fireEvent.click(menuButton);
 
     // Wait for the Sheet to open and render its content
     const dialog = await screen.findByRole("dialog");
@@ -66,7 +66,7 @@ describe("MarketingNav", () => {
     // Find and click the mobile CTA within the open Sheet
     const mobileCtasInDialog = within(dialog).getAllByRole("button", { name: "Sign in" });
     expect(mobileCtasInDialog.length).toBeGreaterThan(0);
-    mobileCtasInDialog[0].click();
+    fireEvent.click(mobileCtasInDialog[0]);
 
     expect(signInWithPopupMock).toHaveBeenCalled();
   });
@@ -77,7 +77,7 @@ describe("MarketingNav", () => {
 
     // Open the Sheet
     const menuButton = screen.getByRole("button", { name: "Open menu" });
-    menuButton.click();
+    fireEvent.click(menuButton);
 
     // Wait for the Sheet to open
     const dialog = await screen.findByRole("dialog");
@@ -99,7 +99,7 @@ describe("MarketingNav", () => {
 
     // Open the Sheet
     const menuButton = screen.getByRole("button", { name: "Open menu" });
-    menuButton.click();
+    fireEvent.click(menuButton);
 
     // Wait for the Sheet to open
     const dialog = await screen.findByRole("dialog");

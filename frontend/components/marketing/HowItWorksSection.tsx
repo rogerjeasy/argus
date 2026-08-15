@@ -1,4 +1,5 @@
-import { Eye, Map, Navigation, RefreshCw, Target } from "lucide-react";
+import { Fragment } from "react";
+import { ArrowRight, Eye, Map, Navigation, RefreshCw, Target } from "lucide-react";
 import { Reveal } from "./Reveal";
 import { LoopStep, type LoopStepData } from "./LoopStep";
 
@@ -50,8 +51,16 @@ export function HowItWorksSection() {
         </div>
 
         <div className="mt-14 flex flex-col gap-4 lg:flex-row lg:items-stretch">
-          {STEPS.map((step) => (
-            <LoopStep key={step.step} {...step} />
+          {STEPS.map((step, index) => (
+            <Fragment key={step.step}>
+              <LoopStep {...step} />
+              {index < STEPS.length - 1 ? (
+                <ArrowRight
+                  className="h-5 w-5 shrink-0 self-center rotate-90 text-muted-foreground lg:rotate-0"
+                  aria-hidden="true"
+                />
+              ) : null}
+            </Fragment>
           ))}
         </div>
       </Reveal>

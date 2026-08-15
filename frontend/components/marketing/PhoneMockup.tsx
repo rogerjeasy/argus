@@ -1,5 +1,7 @@
 import { cn } from "@/lib/utils";
 
+// Deliberately outside the project's rounded-lg/rounded-xl shape scale —
+// a phone device frame needs a phone-like radius, not a card radius.
 export function PhoneMockup({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
     <div

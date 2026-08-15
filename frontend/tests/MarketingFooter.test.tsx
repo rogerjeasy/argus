@@ -14,4 +14,13 @@ describe("MarketingFooter", () => {
       expect(link.getAttribute("href")).not.toBeNull();
     }
   });
+
+  it("points each footer nav link at its exact section anchor", () => {
+    render(<MarketingFooter />);
+    expect(screen.getByRole("link", { name: "How it works" })).toHaveAttribute("href", "#how-it-works");
+    expect(screen.getByRole("link", { name: "Domains" })).toHaveAttribute("href", "#domains");
+    expect(screen.getByRole("link", { name: "Multimodal" })).toHaveAttribute("href", "#multimodal");
+    expect(screen.getByRole("link", { name: "Architecture" })).toHaveAttribute("href", "#architecture");
+    expect(screen.getByRole("link", { name: "Trust" })).toHaveAttribute("href", "#trust");
+  });
 });

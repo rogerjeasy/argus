@@ -55,8 +55,8 @@ export function ProblemSection() {
             <tbody>
               {CONTRAST_ROWS.map((row) => (
                 <tr key={row.exists} className="border-b border-border last:border-0">
-                  <td className="px-5 py-4 text-sm text-muted-foreground sm:px-6 sm:text-base">{row.exists}</td>
-                  <td className="px-5 py-4 text-sm text-foreground sm:px-6 sm:text-base">{row.argus}</td>
+                  <td className="text-pretty px-5 py-4 text-sm text-muted-foreground sm:px-6 sm:text-base">{row.exists}</td>
+                  <td className="text-pretty px-5 py-4 text-sm text-foreground sm:px-6 sm:text-base">{row.argus}</td>
                 </tr>
               ))}
             </tbody>
