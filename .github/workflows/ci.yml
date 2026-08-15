@@ -70,62 +70,67 @@ jobs:
           cd frontend && pnpm gen:api
           git diff --exit-code lib/api/schema.ts
 
-  terraform-plan:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: infra/terraform/environments/dev
-    steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-      - uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ vars.GCP_CI_SERVICE_ACCOUNT_EMAIL }}
-      - name: terraform fmt
-        run: terraform fmt -check -recursive ../..
-      - name: terraform init
-        run: terraform init -backend-config="bucket=${{ vars.GCP_TF_STATE_BUCKET }}"
-      - name: terraform validate
-        run: terraform validate
-      - name: terraform plan
-        run: |
-          terraform plan \
-            -var="project_id=${{ vars.GCP_PROJECT_ID }}" \
-            -var="firebase_project_id=${{ vars.GCP_PROJECT_ID }}"
+  # Disabled for the moment: GCP_WORKLOAD_IDENTITY_PROVIDER (and related repo
+  # vars) aren't wired up yet, so this job fails auth before it does anything
+  # useful. Re-enable by uncommenting once GCP CI auth is configured.
+  # terraform-plan:
+  #   if: github.event_name == 'pull_request'
+  #   runs-on: ubuntu-latest
+  #   defaults:
+  #     run:
+  #       working-directory: infra/terraform/environments/dev
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: hashicorp/setup-terraform@v3
+  #       with:
+  #         terraform_version: ${{ env.TF_VERSION }}
+  #     - uses: google-github-actions/auth@v2
+  #       with:
+  #         workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+  #         service_account: ${{ vars.GCP_CI_SERVICE_ACCOUNT_EMAIL }}
+  #     - name: terraform fmt
+  #       run: terraform fmt -check -recursive ../..
+  #     - name: terraform init
+  #       run: terraform init -backend-config="bucket=${{ vars.GCP_TF_STATE_BUCKET }}"
+  #     - name: terraform validate
+  #       run: terraform validate
+  #     - name: terraform plan
+  #       run: |
+  #         terraform plan \
+  #           -var="project_id=${{ vars.GCP_PROJECT_ID }}" \
+  #           -var="firebase_project_id=${{ vars.GCP_PROJECT_ID }}"
 
-  deploy:
-    needs: [backend, frontend]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ vars.GCP_CI_SERVICE_ACCOUNT_EMAIL }}
-      - uses: google-github-actions/setup-gcloud@v2
-      - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
-      - name: Build and push backend image
-        run: |
-          IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/argus/argus-backend:${{ github.sha }}"
-          docker build -t "$IMAGE" backend
-          docker push "$IMAGE"
-          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-      - name: terraform init
-        working-directory: infra/terraform/environments/dev
-        run: terraform init -backend-config="bucket=${{ vars.GCP_TF_STATE_BUCKET }}"
-      - name: terraform apply
-        working-directory: infra/terraform/environments/dev
-        run: |
-          terraform apply -auto-approve \
-            -var="project_id=${{ vars.GCP_PROJECT_ID }}" \
-            -var="firebase_project_id=${{ vars.GCP_PROJECT_ID }}" \
-            -var="backend_image=${{ env.IMAGE }}"
+  # Disabled for the moment, same reason as terraform-plan above (GCP CI auth
+  # not wired up yet) — also depends on it being enabled first.
+  # deploy:
+  #   needs: [backend, frontend]
+  #   if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: google-github-actions/auth@v2
+  #       with:
+  #         workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+  #         service_account: ${{ vars.GCP_CI_SERVICE_ACCOUNT_EMAIL }}
+  #     - uses: google-github-actions/setup-gcloud@v2
+  #     - name: Configure Docker for Artifact Registry
+  #       run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
+  #     - name: Build and push backend image
+  #       run: |
+  #         IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/argus/argus-backend:${{ github.sha }}"
+  #         docker build -t "$IMAGE" backend
+  #         docker push "$IMAGE"
+  #         echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+  #     - uses: hashicorp/setup-terraform@v3
+  #       with:
+  #         terraform_version: ${{ env.TF_VERSION }}
+  #     - name: terraform init
+  #       working-directory: infra/terraform/environments/dev
+  #       run: terraform init -backend-config="bucket=${{ vars.GCP_TF_STATE_BUCKET }}"
+  #     - name: terraform apply
+  #       working-directory: infra/terraform/environments/dev
+  #       run: |
+  #         terraform apply -auto-approve \
+  #           -var="project_id=${{ vars.GCP_PROJECT_ID }}" \
+  #           -var="firebase_project_id=${{ vars.GCP_PROJECT_ID }}" \
+  #           -var="backend_image=${{ env.IMAGE }}"
