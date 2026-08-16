@@ -2,11 +2,12 @@ import json
 import re
 from datetime import datetime, timezone
 
+from app.agents.guardrail import GuardrailAgent
 from app.agents.llm_runner import LlmAgentRunner
 from app.agents.memory import MemoryAgent
 from app.domains import GroundingRequest
 from app.domains.personal_admin.models import TriageResult
-from app.models.agent_events import GroundedFact, SceneSignal
+from app.models.agent_events import GroundedFact, PlanStep, SceneSignal
 
 #: A fast pre-filter, same role as TransitDomain's keyword list
 #: (app/domains/transit/config.py) — DomainRouterAgent's LLM disambiguation
@@ -31,9 +32,10 @@ class PersonalAdminDomain:
 
     domain_id = "personal_admin"
 
-    def __init__(self, triage_runner: LlmAgentRunner, memory: MemoryAgent) -> None:
+    def __init__(self, triage_runner: LlmAgentRunner, memory: MemoryAgent, guardrail: GuardrailAgent) -> None:
         self._triage_runner = triage_runner
         self._memory = memory
+        self._guardrail = guardrail
         self.executors: dict = {}
 
     def matches(self, goal_text: str) -> bool:
@@ -53,7 +55,15 @@ class PersonalAdminDomain:
             parsed = json.loads(response)
         except json.JSONDecodeError as exc:
             raise ValueError(f"could not parse triage response: {response!r}") from exc
-        return TriageResult(**parsed)
+        result = TriageResult(**parsed)
+
+        if self._guardrail.screen_untrusted_content(document_signal.text):
+            # An embedded instruction overrides the LLM's own classification
+            # — a scam letter's text is never trusted to route itself to an
+            # executable subflow, regardless of what triage concluded from
+            # it. See this task's design note.
+            return TriageResult(category="scam-suspect", urgency=result.urgency, subflow="inform-only", confidence=result.confidence)
+        return result
 
     async def ground(self, request: GroundingRequest) -> GroundedFact:
         profile = await self._memory.get_profile(request.uid)
@@ -67,3 +77,28 @@ class PersonalAdminDomain:
             key=request.key, value=provider.phone_number, source="user_profile", confidence=1.0,
             as_of=datetime.now(timezone.utc),
         )
+
+    async def build_executor_payload(
+        self, step: PlanStep, fact: GroundedFact, triage_result: TriageResult, uid: str
+    ) -> dict:
+        """PlannerAgent.plan()'s real prompt only ever produces {description,
+        action_type, requires_confirmation, category} — it has no reason to
+        know CallGoal's shape (master spec §7.1: only the domain plugin
+        changes). This derives everything an executor payload needs from
+        data the domain already has, called by the orchestrator right
+        before Guardrail evaluates the step (see this task's third gap)."""
+        payload = dict(step.payload)
+        payload["step_id"] = step.step_id
+        payload["executor"] = "call" if triage_result.subflow == "call" else triage_result.subflow
+
+        profile = await self._memory.get_profile(uid)
+        provider = next((p for p in profile.known_providers if p.category == triage_result.category), None)
+        payload["provider"] = provider.name if provider is not None else None
+
+        if triage_result.subflow == "call" and provider is not None:
+            payload["call_goal"] = {
+                "target_phone_number": fact.value,
+                "purpose": step.description,
+                "structured_question": step.description,
+            }
+        return payload

@@ -209,10 +209,29 @@ class TaskOrchestrator:
             return None
 
         triage_result = await triage(signal)
+
+        if triage_result.subflow == "inform-only":
+            # Nothing to ground, plan, or confirm — a junk/inform-only
+            # document (including one screen_untrusted_content() force-routed
+            # here) never reaches an executable subflow at all. See this
+            # task's design note.
+            guidance_output = GuidanceOutput(
+                session_id=signal.session_id,
+                text=f"This looks like a {triage_result.category} item — I don't think it needs action from me.",
+                haptic_pattern=None, earcon=None,
+            )
+            decision = GuardrailDecision(step_id="inform-only", decision="approved", reason="inform-only subflow, nothing to execute")
+            return OrchestrationResult(guidance=guidance_output, guardrail=decision)
+
         fact = await self._grounding_agents[active.domain_id].ground(
             triage_result.category, active.goal.raw_text, active.goal.uid
         )
         step = await self._planner.plan(active.goal, [fact], domain_id=active.domain_id)
+
+        build_payload = getattr(domain, "build_executor_payload", None)
+        if build_payload is not None:
+            step = step.model_copy(update={"payload": await build_payload(step, fact, triage_result, active.goal.uid)})
+
         permissions = await self._memory.get_standing_permissions(active.goal.uid)
         decision = self._guardrail.evaluate(step, fact.confidence, permissions)
 

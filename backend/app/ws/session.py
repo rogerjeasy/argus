@@ -98,7 +98,8 @@ async def build_orchestrator(db: firestore.Client) -> TaskOrchestrator:
     )
 
     memory = MemoryAgent(db)
-    personal_admin = PersonalAdminDomain(triage_runner, memory)
+    guardrail_agent = GuardrailAgent()
+    personal_admin = PersonalAdminDomain(triage_runner, memory, guardrail_agent)
     if settings.twilio_account_sid and settings.twilio_from_number:
         twilio = RealTwilioClient(settings.twilio_account_sid, settings.twilio_auth_token)
         personal_admin.executors["call"] = CallExecutor(
@@ -115,7 +116,7 @@ async def build_orchestrator(db: firestore.Client) -> TaskOrchestrator:
         grounding_agents=grounding_agents,
         domains=domain_registry,
         planner=PlannerAgent(planner_runner),
-        guardrail=GuardrailAgent(),
+        guardrail=guardrail_agent,
         replanning=ReplanningAgent(),
         guidance=GuidanceAgent(guidance_runner),
         memory=memory,

@@ -393,3 +393,49 @@ async def test_malformed_executor_outcome_is_treated_as_failed() -> None:
     result = await orch.resolve_confirmation("sess-1", "user-1", accepted=True)
 
     assert result.guardrail.decision == "denied"
+
+
+@pytest.mark.asyncio
+async def test_handle_document_signal_with_inform_only_subflow_never_grounds_or_executes() -> None:
+    from app.domains.personal_admin.models import TriageResult
+
+    class _InformOnlyDomain(_FakePersonalAdminDomain):
+        async def ground(self, request):
+            # handle_goal() itself grounds once first (Phase 1's hardcoded
+            # "platform" key, unrelated to document triage) before
+            # handle_document_signal ever runs — only a grounding call keyed
+            # on the triage category (what the inform-only branch must never
+            # make) is the thing under test here.
+            if request.key == "platform":
+                from datetime import datetime, timezone
+                from app.models.agent_events import GroundedFact
+                return GroundedFact(key="platform", value="4", source="test", confidence=1.0, as_of=datetime.now(timezone.utc))
+            raise AssertionError("ground() must never be called for an inform-only subflow")
+
+    executor = _FakeExecutor({"step_id": "s1", "status": "success", "structured_data": {}, "summary_text": "unused"})
+    domain = _InformOnlyDomain(
+        triage_result=TriageResult(category="junk", urgency="low", subflow="inform-only", confidence=0.9),
+        fact=None, executors={"call": executor},
+    )
+    router_runner = FakeLlmAgentRunner()
+    db = FakeFirestoreClient()
+    orch = TaskOrchestrator(
+        perception=PerceptionAgent(), router=DomainRouterAgent(router_runner, domains=[domain]),
+        grounding_agents={"personal_admin": GroundingAgent(domain)}, domains={"personal_admin": domain},
+        # handle_goal() itself calls plan() once (its own initial-plan step,
+        # unrelated to document triage) before handle_document_signal ever
+        # runs, so this needs a real scripted JSON response too.
+        planner=PlannerAgent(FakeLlmAgentRunner(next_response=_planner_json_for("personal_admin"))),
+        guardrail=GuardrailAgent(), replanning=ReplanningAgent(),
+        guidance=GuidanceAgent(FakeLlmAgentRunner(next_response="unused")),
+        memory=MemoryAgent(db), escalation=EscalationAgent(db, _FakePublisher(), LoggingNotificationSender()),
+    )
+    goal = PerceivedGoal(session_id="sess-1", uid="user-1", raw_text="deal with this piece of mail")
+    await orch.handle_goal(goal)
+    signal = SceneSignal(session_id="sess-1", kind="signage_text", text="You may already be a winner!", confidence=0.9)
+
+    result = await orch.handle_document_signal(signal)
+
+    assert result is not None
+    assert result.guardrail.decision == "approved"
+    assert executor.received_payloads == []
