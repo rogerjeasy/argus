@@ -8,6 +8,7 @@ from typing import Callable
 import anyio
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, status
 from google.adk.agents import LlmAgent
+from google.adk.models.google_llm import Gemini
 from google.cloud import firestore
 from starlette.concurrency import run_in_threadpool
 from starlette.websockets import WebSocketState
@@ -41,19 +42,38 @@ def get_bridge_factory() -> Callable[[Settings], GeminiLiveBridge]:
     return lambda settings: GeminiLiveBridge(settings)
 
 
+def _reasoning_model(settings: Settings) -> Gemini:
+    """ADK's `Gemini` model wrapper builds its own `google.genai.Client()`
+    lazily, and — unlike `GeminiLiveBridge`'s client, which we configure
+    explicitly — it does that from ambient `GOOGLE_GENAI_USE_VERTEXAI`/
+    `GOOGLE_CLOUD_PROJECT`/`GOOGLE_CLOUD_LOCATION` env vars unless given
+    `client_kwargs` directly. Passing them here keeps one source of truth
+    (`Settings`) instead of relying on the process environment separately
+    agreeing with it."""
+    return Gemini(
+        model="gemini-2.5-flash",
+        client_kwargs={"vertexai": True, "project": settings.gcp_project_id, "location": settings.vertex_ai_location},
+    )
+
+
 def build_orchestrator(db: firestore.Client) -> TaskOrchestrator:
+    settings = get_settings()
     # Phase 1's only registered domain. A later phase adds a second plugin
     # here without touching the orchestrator or any of the nine agents.
     stub = StubDomain(FakeGroundingSource())
     router_runner = LlmAgentRunner(
-        agent=LlmAgent(name="domain_router", model="gemini-2.5-flash", instruction="Classify the goal into one domain id.")
+        agent=LlmAgent(
+            name="domain_router", model=_reasoning_model(settings), instruction="Classify the goal into one domain id."
+        )
     )
     planner_runner = LlmAgentRunner(
-        agent=LlmAgent(name="planner", model="gemini-2.5-flash", instruction="Produce the next plan step as JSON.")
+        agent=LlmAgent(name="planner", model=_reasoning_model(settings), instruction="Produce the next plan step as JSON.")
     )
     guidance_runner = LlmAgentRunner(
         agent=LlmAgent(
-            name="guidance", model="gemini-2.5-flash", instruction="Phrase this plan step as one short spoken instruction."
+            name="guidance",
+            model=_reasoning_model(settings),
+            instruction="Phrase this plan step as one short spoken instruction.",
         )
     )
 
