@@ -377,3 +377,44 @@ def test_malformed_client_text_message_is_dropped_not_raised(monkeypatch) -> Non
 
     assert fake_orchestrator.resolve_calls == []
     assert stub_bridge.sent == [b"more-audio"]
+
+
+def test_build_orchestrator_registers_personal_admin_alongside_transit(monkeypatch) -> None:
+    import asyncio
+
+    import httpx
+
+    from app.core.config import Settings
+    from app.domains.transit.registry import reset_transit_domain_registry_for_tests
+    from app.tests.fixtures.gtfs_builders import build_static_feed_zip
+    from app.ws.session import build_orchestrator
+
+    # Mirrors test_transit_domain_registry.py's own fixture exactly — a
+    # single-stop static feed is enough for get_transit_domains() to build
+    # without a real network fetch. Same _RealAsyncClient-capture reasoning
+    # as that file's own module docstring: patching
+    # app.domains.transit.registry.httpx.AsyncClient must not recurse into
+    # itself.
+    _real_async_client = httpx.AsyncClient
+    static_zip = build_static_feed_zip(
+        [{"stop_id": "s1", "stop_name": "North Station", "platform_code": "", "parent_station": ""}],
+        [{"trip_id": "t1", "stop_id": "s1", "arrival_time": "09:00:00", "stop_sequence": "1"}],
+    )
+
+    class _FakeTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=static_zip, request=request)
+
+    reset_transit_domain_registry_for_tests()
+    monkeypatch.setattr("app.ws.session.get_settings", lambda: Settings(gtfs_ch_static_feed_url="", gtfs_ch_realtime_feed_url=""))
+    monkeypatch.setattr(
+        "app.domains.transit.registry.httpx.AsyncClient", lambda **kw: _real_async_client(transport=_FakeTransport())
+    )
+
+    db = FakeFirestoreClient()
+    orchestrator = asyncio.run(build_orchestrator(db))
+
+    assert "personal_admin" in orchestrator._domains
+    personal_admin = orchestrator._domains["personal_admin"]
+    assert personal_admin.executors == {}  # no Twilio credentials in this test's Settings
+    reset_transit_domain_registry_for_tests()

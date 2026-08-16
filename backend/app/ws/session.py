@@ -29,9 +29,13 @@ from app.core.clients import get_firestore_client
 from app.core.config import Settings, get_settings
 from app.core.pubsub import get_publisher_client
 from app.core.telemetry import get_tracer
+from app.domains.personal_admin.call_executor import CallExecutor
+from app.domains.personal_admin.domain import PersonalAdminDomain
 from app.domains.transit.registry import get_transit_domains
+from app.integrations.twilio_client import RealTwilioClient
 from app.models.agent_events import PerceivedGoal
 from app.ws.gemini_bridge import GeminiLiveBridge
+from app.ws.twilio_media import get_call_session_registry
 
 router = APIRouter()
 tracer = get_tracer(__name__)
@@ -70,7 +74,7 @@ async def build_orchestrator(db: firestore.Client) -> TaskOrchestrator:
     # unused here). get_transit_domains() is lazy — see
     # app/domains/transit/registry.py — so this doesn't refetch/reparse the
     # static feed on every WebSocket session.
-    domains = await get_transit_domains(settings)
+    transit_domains = await get_transit_domains(settings)
     router_runner = LlmAgentRunner(
         agent=LlmAgent(
             name="domain_router", model=_reasoning_model(settings), instruction="Classify the goal into one domain id."
@@ -86,10 +90,25 @@ async def build_orchestrator(db: firestore.Client) -> TaskOrchestrator:
             instruction="Phrase this plan step as one short spoken instruction.",
         )
     )
+    triage_runner = LlmAgentRunner(
+        agent=LlmAgent(
+            name="personal_admin_triage", model=_reasoning_model(settings),
+            instruction="Classify a scanned document into category/urgency/subflow, as JSON.",
+        )
+    )
 
+    memory = MemoryAgent(db)
+    personal_admin = PersonalAdminDomain(triage_runner, memory)
+    if settings.twilio_account_sid and settings.twilio_from_number:
+        twilio = RealTwilioClient(settings.twilio_account_sid, settings.twilio_auth_token)
+        personal_admin.executors["call"] = CallExecutor(
+            twilio, get_call_session_registry(),
+            from_number=settings.twilio_from_number, public_base_url=settings.public_base_url,
+        )
+
+    domains = [*transit_domains, personal_admin]
     grounding_agents = {d.domain_id: GroundingAgent(d) for d in domains}
     domain_registry = {d.domain_id: d for d in domains}
-    memory = MemoryAgent(db)
     return TaskOrchestrator(
         perception=PerceptionAgent(),
         router=DomainRouterAgent(router_runner, domains=domains),
