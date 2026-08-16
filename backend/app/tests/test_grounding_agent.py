@@ -67,3 +67,51 @@ async def test_ground_forwards_raw_goal_text_to_the_domain() -> None:
     await agent.ground("platform", "get me to Zürich HB")
 
     assert domain.received == "get me to Zürich HB"
+
+
+def test_scene_signal_suggests_divergence_when_a_different_platform_digit_is_read() -> None:
+    from datetime import datetime, timezone
+    from app.models.agent_events import GroundedFact, SceneSignal
+
+    agent = GroundingAgent(StubDomain(FakeGroundingSource()))
+    expected = GroundedFact(key="platform", value="4", source="stub_feed", confidence=1.0, as_of=datetime.now(timezone.utc))
+    signal = SceneSignal(session_id="s1", kind="signage_text", text="Platform 7", confidence=0.9)
+
+    assert agent.scene_signal_suggests_divergence(expected=expected, signal=signal) is True
+
+
+def test_scene_signal_does_not_suggest_divergence_when_it_confirms_the_plan() -> None:
+    from datetime import datetime, timezone
+    from app.models.agent_events import GroundedFact, SceneSignal
+
+    agent = GroundingAgent(StubDomain(FakeGroundingSource()))
+    expected = GroundedFact(key="platform", value="4", source="stub_feed", confidence=1.0, as_of=datetime.now(timezone.utc))
+    signal = SceneSignal(session_id="s1", kind="signage_text", text="Platform 4", confidence=0.9)
+
+    assert agent.scene_signal_suggests_divergence(expected=expected, signal=signal) is False
+
+
+def test_scene_signal_below_confidence_floor_never_suggests_divergence() -> None:
+    # Red-team case (design doc §9): a blurry/low-light camera read must
+    # never act, even if it superficially contradicts the plan.
+    from datetime import datetime, timezone
+    from app.models.agent_events import GroundedFact, SceneSignal
+
+    agent = GroundingAgent(StubDomain(FakeGroundingSource()))
+    expected = GroundedFact(key="platform", value="4", source="stub_feed", confidence=1.0, as_of=datetime.now(timezone.utc))
+    signal = SceneSignal(session_id="s1", kind="signage_text", text="Platform 7", confidence=0.2)
+
+    assert agent.scene_signal_suggests_divergence(expected=expected, signal=signal) is False
+
+
+def test_scene_signal_with_no_digit_never_suggests_divergence() -> None:
+    # Red-team case (design doc §9): a stale advertising sign in frame must
+    # not be treated as authoritative just because it's readable text.
+    from datetime import datetime, timezone
+    from app.models.agent_events import GroundedFact, SceneSignal
+
+    agent = GroundingAgent(StubDomain(FakeGroundingSource()))
+    expected = GroundedFact(key="platform", value="4", source="stub_feed", confidence=1.0, as_of=datetime.now(timezone.utc))
+    signal = SceneSignal(session_id="s1", kind="signage_text", text="Drink Coffee!", confidence=0.95)
+
+    assert agent.scene_signal_suggests_divergence(expected=expected, signal=signal) is False

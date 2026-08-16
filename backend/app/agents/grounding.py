@@ -1,5 +1,10 @@
+import re
+
+from app.agents.guardrail import MIN_CONFIDENCE_FLOOR
 from app.domains import DomainPlugin, GroundingRequest
-from app.models.agent_events import DivergenceSignal, GroundedFact
+from app.models.agent_events import DivergenceSignal, GroundedFact, SceneSignal
+
+_DIGIT_PATTERN = re.compile(r"\d+")
 
 
 class GroundingAgent:
@@ -27,3 +32,20 @@ class GroundingAgent:
             observed=new_fact.value,
             source=new_fact.source,
         )
+
+    def scene_signal_suggests_divergence(self, *, expected: GroundedFact, signal: SceneSignal) -> bool:
+        """Gates whether a camera signal is worth a re-ground — never the
+        divergence decision itself (that's still the real feed via
+        check_for_divergence, GTFS-Realtime is the tie-breaker, not the
+        camera alone). Both red-team cases from the design doc are enforced
+        here: a low-confidence read and a signal with no plausible
+        platform-shaped content each return False before any grounding
+        call happens."""
+        if signal.kind != "signage_text":
+            return False
+        if signal.confidence < MIN_CONFIDENCE_FLOOR:
+            return False
+        match = _DIGIT_PATTERN.search(signal.text)
+        if match is None:
+            return False
+        return match.group() != expected.value
