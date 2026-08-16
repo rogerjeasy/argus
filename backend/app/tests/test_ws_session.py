@@ -16,6 +16,9 @@ class _StubBridge:
         self.connected = False
         self.sent: list[bytes] = []
 
+    def set_on_input_transcript(self, callback) -> None:
+        pass
+
     async def connect(self) -> None:
         self.connected = True
 
@@ -39,6 +42,9 @@ class _FailingConnectBridge:
     def __init__(self) -> None:
         self.closed = False
 
+    def set_on_input_transcript(self, callback) -> None:
+        pass
+
     async def connect(self) -> None:
         raise RuntimeError("gemini connect failed")
 
@@ -59,6 +65,9 @@ class _DroppingBridge:
     def __init__(self) -> None:
         self.sent: list[bytes] = []
         self.closed = False
+
+    def set_on_input_transcript(self, callback) -> None:
+        pass
 
     async def connect(self) -> None:
         pass
@@ -147,3 +156,59 @@ def test_ws_session_closes_when_gemini_drops_mid_session(monkeypatch) -> None:
     assert len(stored) == 1
     assert stored[0]["uid"] == "user-3"
     assert stored[0]["status"] == "error"
+
+
+class _StubBridgeWithTranscript(_StubBridge):
+    def __init__(self) -> None:
+        super().__init__()
+        self.on_input_transcript = None
+        self.spoken: list[str] = []
+
+    def set_on_input_transcript(self, callback) -> None:
+        self.on_input_transcript = callback
+
+    async def speak(self, text: str) -> None:
+        self.spoken.append(text)
+
+
+class _FakeOrchestratorResult:
+    def __init__(self, text: str, decision: str) -> None:
+        from app.models.agent_events import GuardrailDecision, GuidanceOutput
+        self.guidance = GuidanceOutput(session_id="s1", text=text, haptic_pattern="pattern-forward", earcon="earcon-plan-updated")
+        self.guardrail = GuardrailDecision(step_id="step-1", decision=decision, reason="test")
+
+
+class _FakeOrchestrator:
+    async def handle_goal(self, goal):
+        return _FakeOrchestratorResult("Head to platform 4.", "requires_confirmation")
+
+
+def test_ws_session_sends_a_guidance_frame_after_a_finished_transcript(monkeypatch) -> None:
+    import json
+
+    fake_db = FakeFirestoreClient()
+    stub_bridge = _StubBridgeWithTranscript()
+
+    app.dependency_overrides[get_firestore_client] = lambda: fake_db
+    app.dependency_overrides[get_bridge_factory] = lambda: (lambda settings: stub_bridge)
+    monkeypatch.setattr("app.ws.session.verify_id_token_string", _authenticated_as("user-1"))
+    monkeypatch.setattr("app.ws.session.build_orchestrator", lambda db: _FakeOrchestrator())
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws/session?token=valid-token") as websocket:
+        # Drain the audio frame from _StubBridge's receive_audio() first.
+        websocket.receive_bytes()
+        # `set_on_input_transcript` was called with the real closure during
+        # session setup, before the endpoint blocks on the relay tasks below
+        # — call it directly to simulate Gemini reporting a finished
+        # transcript, exactly as `session.py`'s receive loop would.
+        import asyncio
+
+        asyncio.run(stub_bridge.on_input_transcript("get me to platform 4"))
+        frame = websocket.receive_text()
+        payload = json.loads(frame)
+
+    assert payload["type"] == "guidance"
+    assert payload["text"] == "Head to platform 4."
+    assert payload["guardrail_decision"] == "requires_confirmation"
+    assert stub_bridge.spoken == ["Head to platform 4."]

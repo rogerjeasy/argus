@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -6,14 +7,29 @@ from typing import Callable
 
 import anyio
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, status
+from google.adk.agents import LlmAgent
 from google.cloud import firestore
 from starlette.concurrency import run_in_threadpool
 from starlette.websockets import WebSocketState
 
+from app.agents.escalation import EscalationAgent, LoggingNotificationSender
+from app.agents.grounding import GroundingAgent
+from app.agents.guardrail import GuardrailAgent
+from app.agents.guidance import GuidanceAgent
+from app.agents.llm_runner import LlmAgentRunner
+from app.agents.memory import MemoryAgent
+from app.agents.orchestrator import TaskOrchestrator
+from app.agents.perception import PerceptionAgent
+from app.agents.planner import PlannerAgent
+from app.agents.replanning import ReplanningAgent
+from app.agents.router import DomainRouterAgent
 from app.core.auth import AuthenticatedUser, InvalidTokenError, verify_id_token_string
 from app.core.clients import get_firestore_client
 from app.core.config import Settings, get_settings
+from app.core.pubsub import get_publisher_client
 from app.core.telemetry import get_tracer
+from app.domains.stub import FakeGroundingSource, StubDomain
+from app.models.agent_events import PerceivedGoal
 from app.ws.gemini_bridge import GeminiLiveBridge
 
 router = APIRouter()
@@ -23,6 +39,37 @@ logger = logging.getLogger(__name__)
 
 def get_bridge_factory() -> Callable[[Settings], GeminiLiveBridge]:
     return lambda settings: GeminiLiveBridge(settings)
+
+
+def build_orchestrator(db: firestore.Client) -> TaskOrchestrator:
+    # Phase 1's only registered domain. A later phase adds a second plugin
+    # here without touching the orchestrator or any of the nine agents.
+    stub = StubDomain(FakeGroundingSource())
+    router_runner = LlmAgentRunner(
+        agent=LlmAgent(name="domain_router", model="gemini-2.5-flash", instruction="Classify the goal into one domain id.")
+    )
+    planner_runner = LlmAgentRunner(
+        agent=LlmAgent(name="planner", model="gemini-2.5-flash", instruction="Produce the next plan step as JSON.")
+    )
+    guidance_runner = LlmAgentRunner(
+        agent=LlmAgent(
+            name="guidance", model="gemini-2.5-flash", instruction="Phrase this plan step as one short spoken instruction."
+        )
+    )
+
+    grounding = GroundingAgent(stub)
+    memory = MemoryAgent(db)
+    return TaskOrchestrator(
+        perception=PerceptionAgent(),
+        router=DomainRouterAgent(router_runner, domains=[stub]),
+        grounding_agents={"stub": grounding},
+        planner=PlannerAgent(planner_runner),
+        guardrail=GuardrailAgent(),
+        replanning=ReplanningAgent(grounding),
+        guidance=GuidanceAgent(guidance_runner),
+        memory=memory,
+        escalation=EscalationAgent(db, get_publisher_client(), LoggingNotificationSender()),
+    )
 
 
 def _authenticate(websocket: WebSocket) -> AuthenticatedUser:
@@ -80,6 +127,22 @@ async def session_endpoint(
         )
 
         bridge = bridge_factory(settings)
+        orchestrator = build_orchestrator(db)
+
+        async def _handle_transcript(text: str) -> None:
+            goal = PerceivedGoal(session_id=session_id, uid=user.uid, raw_text=text)
+            result = await orchestrator.handle_goal(goal)
+            await bridge.speak(result.guidance.text)
+            if websocket.application_state == WebSocketState.CONNECTED:
+                await websocket.send_text(json.dumps({
+                    "type": "guidance",
+                    "text": result.guidance.text,
+                    "haptic_pattern": result.guidance.haptic_pattern,
+                    "earcon": result.guidance.earcon,
+                    "guardrail_decision": result.guardrail.decision,
+                }))
+
+        bridge.set_on_input_transcript(_handle_transcript)
 
         try:
             await bridge.connect()
