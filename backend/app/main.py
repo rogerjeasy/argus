@@ -7,6 +7,7 @@ from app.api.users import router as users_router
 from app.core.config import get_settings
 from app.core.logging_config import configure_logging
 from app.ws.session import router as ws_router
+from app.ws.twilio_media import router as twilio_media_router
 
 
 def create_app() -> FastAPI:
@@ -28,6 +29,7 @@ def create_app() -> FastAPI:
     app.include_router(settings_router)
     app.include_router(users_router)
     app.include_router(ws_router)
+    app.include_router(twilio_media_router)
     return app
 
 
