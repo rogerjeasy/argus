@@ -33,3 +33,11 @@ async def test_record_task_history_persists_a_summary() -> None:
 
     stored = db.collection("argus_users").document("u1").collection("task_history").document("s1").get()
     assert stored.to_dict()["summary"] == "Guided to platform 4"
+
+
+def test_standing_permission_provider_defaults_to_none() -> None:
+    from app.agents.memory import StandingPermission
+
+    permission = StandingPermission(category="pharmacy_refill_under_20", threshold=0.5)
+
+    assert permission.provider is None

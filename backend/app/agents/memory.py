@@ -8,6 +8,7 @@ from starlette.concurrency import run_in_threadpool
 class StandingPermission(BaseModel):
     category: str
     threshold: float
+    provider: str | None = None
 
 
 class MemoryAgent:
