@@ -165,3 +165,13 @@ async def test_build_executor_payload_omits_call_goal_when_no_provider_is_known(
 
     assert payload["provider"] is None
     assert "call_goal" not in payload
+
+
+def test_form_field_and_outcome_models_accept_their_documented_shapes() -> None:
+    from app.domains.personal_admin.models import FormField, FormFillOutcome
+
+    field = FormField(name="policy_number", label="Policy number", value=None, source="unresolved")
+    outcome = FormFillOutcome(status="needs_user_input", fields=[field], missing_field="policy_number", output_url=None)
+
+    assert outcome.fields[0].source == "unresolved"
+    assert outcome.missing_field == "policy_number"

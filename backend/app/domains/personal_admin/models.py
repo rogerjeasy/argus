@@ -30,3 +30,17 @@ class CallOutcome(BaseModel):
     structured_data: dict
     transcript_summary: str
     confidence: float
+
+
+class FormField(BaseModel):
+    name: str
+    label: str
+    value: str | None
+    source: str = Field(pattern="^(memory_profile|user_provided|unresolved)$")
+
+
+class FormFillOutcome(BaseModel):
+    status: str = Field(pattern="^(submitted|pdf_ready|needs_user_input)$")
+    fields: list[FormField]
+    missing_field: str | None
+    output_url: str | None  # Cloud Storage signed URL

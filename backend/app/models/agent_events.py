@@ -41,8 +41,11 @@ class PlanStep(BaseModel):
 
 class GuardrailDecision(BaseModel):
     step_id: str
-    decision: str = Field(pattern="^(approved|requires_confirmation|denied)$")
+    decision: str = Field(pattern="^(approved|requires_confirmation|requires_field_input|denied)$")
     reason: str
+    #: Only set when decision == "requires_field_input" — the human-readable
+    #: label of the one form field still needing a value (design doc §4a.1).
+    field_label: str | None = None
 
 
 class GuidanceOutput(BaseModel):
