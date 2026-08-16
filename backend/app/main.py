@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.health import router as health_router
+from app.api.webhooks import internal_router, router as webhooks_router
 from app.api.settings import router as settings_router
 from app.api.users import router as users_router
 from app.core.config import get_settings
@@ -30,6 +31,8 @@ def create_app() -> FastAPI:
     app.include_router(users_router)
     app.include_router(ws_router)
     app.include_router(twilio_media_router)
+    app.include_router(webhooks_router)
+    app.include_router(internal_router)
     return app
 
 

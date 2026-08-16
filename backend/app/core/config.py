@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     twilio_auth_token: str = ""
     twilio_from_number: str = ""
     twilio_test_ivr_number: str = ""
+    cloud_tasks_queue: str = "argus-call-retries"
+    cloud_tasks_location: str = "us-central1"
     #: Public base URL this backend is reachable at — Twilio's Media Stream
     #: and status-callback webhook both need a real, internet-reachable URL
     #: to call back into (e.g. the Cloud Run service URL, or an ngrok URL

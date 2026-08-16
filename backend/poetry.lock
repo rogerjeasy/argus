@@ -1131,6 +1131,29 @@ testing = ["PyYAML", "black", "brotli", "coverage", "flake8", "google-cloud-iam"
 tracing = ["opentelemetry-api (>=1.1.0,<2.0.0)"]
 
 [[package]]
+name = "google-cloud-tasks"
+version = "2.24.0"
+description = "Google Cloud Tasks API client library"
+optional = false
+python-versions = ">=3.10"
+groups = ["main"]
+files = [
+    {file = "google_cloud_tasks-2.24.0-py3-none-any.whl", hash = "sha256:1c82007a252d47efb4006eae5a5a0d9f6d375f917ab1c5cd80ce4a6f0ea4690d"},
+    {file = "google_cloud_tasks-2.24.0.tar.gz", hash = "sha256:aa4f8764e5b157cbab81af619cc4fd9f14ebece8b69e5394a657c328a8366228"},
+]
+
+[package.dependencies]
+google-api-core = {version = ">=2.25.0,<3.0.0", extras = ["grpc"]}
+google-auth = ">=2.14.1,<2.24.0 || >2.24.0,<2.25.0 || >2.25.0,<3.0.0"
+grpc-google-iam-v1 = ">=0.14.2,<1.0.0"
+grpcio = [
+    {version = ">=1.75.1,<2.0.0", markers = "python_version >= \"3.14\""},
+    {version = ">=1.59.0,<2.0.0"},
+]
+proto-plus = ">=1.26.1,<2.0.0"
+protobuf = ">=6.33.5,<8.0.0"
+
+[[package]]
 name = "google-cloud-trace"
 version = "1.20.0"
 description = "Google Cloud Trace API client library"
@@ -3348,4 +3371,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.12"
-content-hash = "775d85d059cc12b80e6150543bd8a4d87751fd3e52da1cef236dfa56812b7c04"
+content-hash = "44125042fe85c0ee25a7fe7af04a55c8e32a5d22f430f928c931dea279060312"
