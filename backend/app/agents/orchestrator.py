@@ -82,7 +82,7 @@ class TaskOrchestrator:
             # Phase 1's stub domain only ever grounds one key; a real domain
             # (later phase) would derive this from the goal text.
             grounding_key = "platform"
-            fact = await grounding.ground(grounding_key)
+            fact = await grounding.ground(grounding_key, goal.raw_text)
 
             step = await self._planner.plan(goal, [fact], domain_id=domain_id)
             permissions = await self._memory.get_standing_permissions(goal.uid)
@@ -103,7 +103,7 @@ class TaskOrchestrator:
             return None
 
         grounding = self._grounding_agents[active.domain_id]
-        new_fact = await grounding.ground(active.grounding_key)
+        new_fact = await grounding.ground(active.grounding_key, active.goal.raw_text)
         divergence = grounding.check_divergence(plan_step_id=active.step.step_id, expected=active.fact, new_fact=new_fact)
         if divergence is None:
             return None
@@ -123,7 +123,9 @@ class TaskOrchestrator:
             del self._active[session_id]
             return OrchestrationResult(guidance=escalation_output, guardrail=denied)
 
-        replanned_fact = await self._replanning.replan(key=active.grounding_key, attempt=active.replan_attempts)
+        replanned_fact = await self._replanning.replan(
+            key=active.grounding_key, attempt=active.replan_attempts, raw_goal_text=active.goal.raw_text
+        )
         new_step = await self._planner.plan(active.goal, [replanned_fact], domain_id=active.domain_id)
         permissions = await self._memory.get_standing_permissions(uid)
         decision = self._guardrail.evaluate(new_step, replanned_fact.confidence, permissions)

@@ -12,8 +12,8 @@ class GroundingAgent:
     def __init__(self, domain: DomainPlugin) -> None:
         self._domain = domain
 
-    async def ground(self, key: str) -> GroundedFact:
-        return await self._domain.ground(GroundingRequest(key=key))
+    async def ground(self, key: str, raw_goal_text: str = "") -> GroundedFact:
+        return await self._domain.ground(GroundingRequest(key=key, raw_goal_text=raw_goal_text))
 
     def check_divergence(
         self, *, plan_step_id: str, expected: GroundedFact, new_fact: GroundedFact

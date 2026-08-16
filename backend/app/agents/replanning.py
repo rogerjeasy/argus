@@ -14,8 +14,8 @@ class ReplanningAgent:
     def __init__(self, grounding: GroundingAgent) -> None:
         self._grounding = grounding
 
-    async def replan(self, *, key: str, attempt: int) -> GroundedFact:
-        return await self._grounding.ground(key)
+    async def replan(self, *, key: str, attempt: int, raw_goal_text: str = "") -> GroundedFact:
+        return await self._grounding.ground(key, raw_goal_text)
 
     def should_escalate(self, attempt: int) -> bool:
         return attempt > MAX_REPLAN_ATTEMPTS
