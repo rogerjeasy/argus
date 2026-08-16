@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     vertex_ai_location: str = "us-central1"
     gemini_live_model: str = "gemini-live-2.5-flash"
     cors_allow_origins: list[str] = ["http://localhost:3000"]
+    gtfs_ch_static_feed_url: str = ""
+    gtfs_ch_realtime_feed_url: str = ""
+    gtfs_ch_auth_token: str = ""
+    gtfs_mbta_static_feed_url: str = "https://cdn.mbta.com/MBTA_GTFS.zip"
+    gtfs_mbta_realtime_feed_url: str = "https://cdn.mbta.com/realtime/TripUpdates.pb"
+    gtfs_realtime_cache_ttl_seconds: float = 5.0
 
 
 @lru_cache
