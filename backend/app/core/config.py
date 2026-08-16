@@ -29,6 +29,16 @@ class Settings(BaseSettings):
     #: same graceful-degradation posture every other optional integration
     #: in this project already takes.
     kms_key_name: str = ""
+    twilio_account_sid: str = ""
+    twilio_auth_token: str = ""
+    twilio_from_number: str = ""
+    twilio_test_ivr_number: str = ""
+    #: Public base URL this backend is reachable at — Twilio's Media Stream
+    #: and status-callback webhook both need a real, internet-reachable URL
+    #: to call back into (e.g. the Cloud Run service URL, or an ngrok URL
+    #: for local dev against a real Twilio account). Empty is fine until
+    #: Task 9+ actually places a real call.
+    public_base_url: str = ""
 
 
 @lru_cache
