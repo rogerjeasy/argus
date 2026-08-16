@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, test, vi } from "vitest";
 import { parseControlFrame, parseFramingFrame } from "@/lib/session/protocol";
 
 describe("parseControlFrame", () => {
@@ -10,6 +10,7 @@ describe("parseControlFrame", () => {
         haptic_pattern: "pattern-forward",
         earcon: "earcon-plan-updated",
         guardrail_decision: "requires_confirmation",
+        step_id: "step-1",
       })
     );
     expect(frame).toEqual({
@@ -18,6 +19,7 @@ describe("parseControlFrame", () => {
       hapticPattern: "pattern-forward",
       earcon: "earcon-plan-updated",
       guardrailDecision: "requires_confirmation",
+      stepId: "step-1",
     });
   });
 
@@ -31,6 +33,14 @@ describe("parseControlFrame", () => {
   it("returns null for a well-formed but unrecognized frame type", () => {
     expect(parseControlFrame(JSON.stringify({ type: "unknown" }))).toBeNull();
   });
+});
+
+test("parseControlFrame captures step_id for the confirmation round trip", () => {
+  const frame = parseControlFrame(
+    JSON.stringify({ type: "guidance", text: "hi", guardrail_decision: "requires_confirmation", step_id: "s1" })
+  );
+
+  expect(frame?.stepId).toBe("s1");
 });
 
 describe("parseFramingFrame", () => {

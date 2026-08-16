@@ -161,9 +161,7 @@ async def session_endpoint(
         bridge = bridge_factory(settings)
         orchestrator = await build_orchestrator(db)
 
-        async def _handle_transcript(text: str) -> None:
-            goal = PerceivedGoal(session_id=session_id, uid=user.uid, raw_text=text)
-            result = await orchestrator.handle_goal(goal)
+        async def _speak_and_send_guidance(result) -> None:
             await bridge.speak(result.guidance.text)
             if websocket.application_state == WebSocketState.CONNECTED:
                 await websocket.send_text(json.dumps({
@@ -172,7 +170,26 @@ async def session_endpoint(
                     "haptic_pattern": result.guidance.haptic_pattern,
                     "earcon": result.guidance.earcon,
                     "guardrail_decision": result.guardrail.decision,
+                    "step_id": result.guardrail.step_id,
                 }))
+
+        async def _handle_transcript(text: str) -> None:
+            goal = PerceivedGoal(session_id=session_id, uid=user.uid, raw_text=text)
+            result = await orchestrator.handle_goal(goal)
+            await _speak_and_send_guidance(result)
+
+        async def _handle_client_text_message(raw: str) -> None:
+            try:
+                payload = json.loads(raw)
+            except json.JSONDecodeError:
+                logger.warning("ws_session_malformed_client_text", extra={"session_id": session_id})
+                return
+            if not isinstance(payload, dict) or payload.get("type") != "resolve_confirmation":
+                return
+            accepted = bool(payload.get("accepted", False))
+            result = await orchestrator.resolve_confirmation(session_id, user.uid, accepted)
+            if result is not None:
+                await _speak_and_send_guidance(result)
 
         bridge.set_on_input_transcript(_handle_transcript)
 
@@ -210,15 +227,7 @@ async def session_endpoint(
             if signal is not None:
                 result = await orchestrator.handle_scene_signal(signal)
                 if result is not None:
-                    await bridge.speak(result.guidance.text)
-                    if websocket.application_state == WebSocketState.CONNECTED:
-                        await websocket.send_text(json.dumps({
-                            "type": "guidance",
-                            "text": result.guidance.text,
-                            "haptic_pattern": result.guidance.haptic_pattern,
-                            "earcon": result.guidance.earcon,
-                            "guardrail_decision": result.guardrail.decision,
-                        }))
+                    await _speak_and_send_guidance(result)
 
         bridge.set_on_scene_observation(_handle_scene_observation)
 
@@ -250,7 +259,18 @@ async def session_endpoint(
         async def relay_from_client() -> None:
             first_frame_logged = False
             while True:
-                chunk = await websocket.receive_bytes()
+                message = await websocket.receive()
+                if message["type"] == "websocket.disconnect":
+                    raise WebSocketDisconnect(message.get("code", 1000))
+
+                text = message.get("text")
+                if text is not None:
+                    await _handle_client_text_message(text)
+                    continue
+
+                chunk = message.get("bytes")
+                if chunk is None:
+                    continue
                 if not first_frame_logged:
                     logger.info(
                         "ws_session_first_audio_frame",

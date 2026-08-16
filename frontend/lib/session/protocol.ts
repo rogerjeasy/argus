@@ -6,6 +6,7 @@ export interface GuidanceFrame {
   hapticPattern: string | null;
   earcon: string | null;
   guardrailDecision: GuardrailDecisionValue;
+  stepId: string;
 }
 
 /**
@@ -31,7 +32,7 @@ export function parseControlFrame(raw: string): GuidanceFrame | null {
   }
 
   const frame = payload as Record<string, unknown>;
-  if (typeof frame.text !== "string" || typeof frame.guardrail_decision !== "string") {
+  if (typeof frame.text !== "string" || typeof frame.guardrail_decision !== "string" || typeof frame.step_id !== "string") {
     console.error("Guidance frame missing required fields", frame);
     return null;
   }
@@ -42,6 +43,7 @@ export function parseControlFrame(raw: string): GuidanceFrame | null {
     hapticPattern: typeof frame.haptic_pattern === "string" ? frame.haptic_pattern : null,
     earcon: typeof frame.earcon === "string" ? frame.earcon : null,
     guardrailDecision: frame.guardrail_decision as GuardrailDecisionValue,
+    stepId: frame.step_id,
   };
 }
 
@@ -76,4 +78,17 @@ export function parseFramingFrame(raw: string): FramingFrame | null {
   }
 
   return { type: "framing", text: frame.text, confidenceLow: frame.confidence_low };
+}
+
+/**
+ * Sends the resolve_confirmation control message back to the server — the
+ * one path a tapped ConfirmationPrompt button uses. A spoken "yes" resolves
+ * the same pending step through a completely different route (the user's
+ * transcribed speech, handled server-side in TaskOrchestrator.handle_goal);
+ * both converge on the same TaskOrchestrator.resolve_confirmation call.
+ */
+export function sendResolveConfirmation(socket: WebSocket, stepId: string, accepted: boolean): void {
+  if (socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: "resolve_confirmation", step_id: stepId, accepted }));
+  }
 }

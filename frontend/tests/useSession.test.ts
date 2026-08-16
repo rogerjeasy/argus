@@ -359,6 +359,7 @@ describe("useSession playback", () => {
           haptic_pattern: "pattern-forward",
           earcon: "earcon-plan-updated",
           guardrail_decision: "requires_confirmation",
+          step_id: "step-1",
         }),
       });
     });

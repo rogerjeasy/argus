@@ -313,3 +313,67 @@ def test_ws_session_speaks_framing_guidance_and_dedups_repeated_positions(monkey
         assert frame2["text"] == "Hold steady, almost there."
 
     assert stub_bridge.spoken == ["Move slightly right.", "Hold steady, almost there."]
+
+
+class _FakeOrchestratorWithConfirmation:
+    def __init__(self) -> None:
+        self.resolve_calls: list[tuple[str, str, bool]] = []
+
+    async def handle_goal(self, goal):
+        return _FakeOrchestratorResult("Head to platform 4.", "requires_confirmation")
+
+    async def resolve_confirmation(self, session_id, uid, accepted):
+        self.resolve_calls.append((session_id, uid, accepted))
+        return _FakeOrchestratorResult("Refill confirmed, ready tomorrow.", "approved")
+
+
+def test_client_text_message_resolves_a_pending_confirmation(monkeypatch) -> None:
+    import json
+
+    fake_db = FakeFirestoreClient()
+    stub_bridge = _StubBridgeWithTranscript()
+    fake_orchestrator = _FakeOrchestratorWithConfirmation()
+
+    app.dependency_overrides[get_firestore_client] = lambda: fake_db
+    app.dependency_overrides[get_bridge_factory] = lambda: (lambda settings: stub_bridge)
+    monkeypatch.setattr("app.ws.session.verify_id_token_string", _authenticated_as("user-1"))
+    _mock_build_orchestrator(monkeypatch, fake_orchestrator)
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws/session?token=valid-token") as websocket:
+        websocket.receive_bytes()  # drain the stub's one audio chunk
+        websocket.send_text(json.dumps({"type": "resolve_confirmation", "step_id": "step-1", "accepted": True}))
+        frame = json.loads(websocket.receive_text())
+
+    assert len(fake_orchestrator.resolve_calls) == 1
+    _, uid, accepted = fake_orchestrator.resolve_calls[0]
+    assert uid == "user-1"
+    assert accepted is True
+    assert frame["type"] == "guidance"
+    assert frame["text"] == "Refill confirmed, ready tomorrow."
+    assert frame["guardrail_decision"] == "approved"
+    assert frame["step_id"] == "step-1"
+    assert stub_bridge.spoken == ["Refill confirmed, ready tomorrow."]
+
+
+def test_malformed_client_text_message_is_dropped_not_raised(monkeypatch) -> None:
+    fake_db = FakeFirestoreClient()
+    stub_bridge = _StubBridgeWithTranscript()
+    fake_orchestrator = _FakeOrchestratorWithConfirmation()
+
+    app.dependency_overrides[get_firestore_client] = lambda: fake_db
+    app.dependency_overrides[get_bridge_factory] = lambda: (lambda settings: stub_bridge)
+    monkeypatch.setattr("app.ws.session.verify_id_token_string", _authenticated_as("user-1"))
+    _mock_build_orchestrator(monkeypatch, fake_orchestrator)
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws/session?token=valid-token") as websocket:
+        websocket.receive_bytes()  # drain the stub's one audio chunk
+        websocket.send_text("not json at all")
+        websocket.send_text('{"type": "something_else"}')
+        # The session must still be alive and relay audio normally after
+        # two malformed/irrelevant text frames.
+        websocket.send_bytes(bytes([1]) + b"more-audio")
+
+    assert fake_orchestrator.resolve_calls == []
+    assert stub_bridge.sent == [b"more-audio"]
