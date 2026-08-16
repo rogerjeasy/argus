@@ -82,6 +82,7 @@ def _orchestrator(config: TransitFeedConfig, poller: _ScriptedPoller) -> TaskOrc
         perception=PerceptionAgent(),
         router=DomainRouterAgent(FakeLlmAgentRunner(), domains=[transit]),
         grounding_agents={config.domain_id: grounding},
+        domains={config.domain_id: transit},
         planner=PlannerAgent(FakeLlmAgentRunner(next_response=planner_response)),
         guardrail=GuardrailAgent(),
         replanning=ReplanningAgent(),

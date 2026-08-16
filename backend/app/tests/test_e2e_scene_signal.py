@@ -46,6 +46,7 @@ def _orchestrator(source: FakeGroundingSource) -> TaskOrchestrator:
         perception=PerceptionAgent(),
         router=DomainRouterAgent(FakeLlmAgentRunner(), domains=[stub]),
         grounding_agents={"stub": grounding},
+        domains={"stub": stub},
         planner=PlannerAgent(FakeLlmAgentRunner(next_response=planner_response)),
         guardrail=GuardrailAgent(),
         replanning=ReplanningAgent(),

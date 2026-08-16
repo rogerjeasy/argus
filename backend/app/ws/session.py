@@ -88,11 +88,13 @@ async def build_orchestrator(db: firestore.Client) -> TaskOrchestrator:
     )
 
     grounding_agents = {d.domain_id: GroundingAgent(d) for d in domains}
+    domain_registry = {d.domain_id: d for d in domains}
     memory = MemoryAgent(db)
     return TaskOrchestrator(
         perception=PerceptionAgent(),
         router=DomainRouterAgent(router_runner, domains=domains),
         grounding_agents=grounding_agents,
+        domains=domain_registry,
         planner=PlannerAgent(planner_runner),
         guardrail=GuardrailAgent(),
         replanning=ReplanningAgent(),

@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+from pydantic import ValidationError
+
 from app.agents.escalation import EscalationAgent
 from app.agents.grounding import GroundingAgent
 from app.agents.guardrail import GuardrailAgent
@@ -10,11 +12,24 @@ from app.agents.planner import PlannerAgent
 from app.agents.replanning import ReplanningAgent
 from app.agents.router import DomainRouterAgent
 from app.core.telemetry import get_tracer
+from app.domains import DomainPlugin
+from app.domains.personal_admin.models import ExecutorOutcome
 from app.models.agent_events import (
     GroundedFact, GuardrailDecision, GuidanceOutput, PerceivedGoal, PlanStep, SceneSignal,
 )
 
 tracer = get_tracer(__name__)
+
+#: A conservative allowlist, not a full NLU intent classifier — anything not
+#: a clear "yes" is treated as a decline, never a silent guess. Matches the
+#: same "never guess on anything safety-adjacent" discipline the confidence
+#: floor already enforces elsewhere.
+_ACCEPT_PHRASES = {"yes", "yeah", "yep", "confirm", "confirmed", "go ahead", "do it", "sure", "okay", "ok"}
+
+
+def _looks_like_acceptance(text: str) -> bool:
+    normalized = text.strip().lower().rstrip(".!")
+    return normalized in _ACCEPT_PHRASES or any(normalized.startswith(f"{w} ") for w in _ACCEPT_PHRASES)
 
 
 @dataclass
@@ -33,6 +48,13 @@ class _ActiveTask:
     replan_attempts: int = 0
 
 
+@dataclass
+class _PendingConfirmation:
+    step: PlanStep
+    uid: str
+    domain_id: str
+
+
 class TaskOrchestrator:
     """Drives the fixed sequence Perception → Router → Grounding → Planner →
     Guardrail → Guidance, with Grounding's divergence output short-circuiting
@@ -48,6 +70,15 @@ class TaskOrchestrator:
     talks to Guidance directly, it only ever earns the right to ask
     `check_for_divergence` to re-check the real feed, which remains the
     actual tie-breaker.
+
+    Phase 3a adds a second kind of scene signal: a photographed document
+    (`handle_document_signal`), dispatched via `hasattr(domain, "triage")`
+    so Transit's own divergence flow is completely untouched. A step that
+    requires confirmation now pauses in `_pending_confirmation` instead of
+    executing — `resolve_confirmation` (a spoken "yes"/"no" or a tapped
+    button) is the only thing that can release it, and `handle_goal` checks
+    for a pending confirmation before ever routing a new goal, so a spoken
+    "yes" is never misrouted as a fresh, unrelated request.
     """
 
     def __init__(
@@ -56,6 +87,7 @@ class TaskOrchestrator:
         perception: PerceptionAgent,
         router: DomainRouterAgent,
         grounding_agents: dict[str, GroundingAgent],
+        domains: dict[str, DomainPlugin],
         planner: PlannerAgent,
         guardrail: GuardrailAgent,
         replanning: ReplanningAgent,
@@ -66,6 +98,7 @@ class TaskOrchestrator:
         self._perception = perception
         self._router = router
         self._grounding_agents = grounding_agents
+        self._domains = domains
         self._planner = planner
         self._guardrail = guardrail
         self._replanning = replanning
@@ -73,8 +106,16 @@ class TaskOrchestrator:
         self._memory = memory
         self._escalation = escalation
         self._active: dict[str, _ActiveTask] = {}  # keyed by session_id
+        self._pending_confirmation: dict[str, _PendingConfirmation] = {}  # keyed by session_id
 
     async def handle_goal(self, goal: PerceivedGoal) -> OrchestrationResult:
+        if goal.session_id in self._pending_confirmation:
+            resolved = await self.resolve_confirmation(
+                goal.session_id, goal.uid, _looks_like_acceptance(goal.raw_text)
+            )
+            if resolved is not None:
+                return resolved
+
         with tracer.start_as_current_span("agent.handle_goal") as span:
             span.set_attribute("argus.session_id", goal.session_id)
             span.set_attribute("argus.uid", goal.uid)
@@ -144,6 +185,10 @@ class TaskOrchestrator:
         if active is None:
             return None
 
+        domain = self._domains[active.domain_id]
+        if hasattr(domain, "triage"):
+            return await self.handle_document_signal(signal)
+
         grounding = self._grounding_agents[active.domain_id]
         if not grounding.scene_signal_suggests_divergence(expected=active.fact, signal=signal):
             return None
@@ -153,3 +198,81 @@ class TaskOrchestrator:
         # tie-breaker (design doc §4), exactly as it already was for
         # Phase 2a's polling-triggered divergence.
         return await self.check_for_divergence(session_id=signal.session_id, uid=active.goal.uid)
+
+    async def handle_document_signal(self, signal: SceneSignal) -> OrchestrationResult | None:
+        active = self._active.get(signal.session_id)
+        if active is None:
+            return None
+        domain = self._domains[active.domain_id]
+        triage = getattr(domain, "triage", None)
+        if triage is None:
+            return None
+
+        triage_result = await triage(signal)
+        fact = await self._grounding_agents[active.domain_id].ground(
+            triage_result.category, active.goal.raw_text, active.goal.uid
+        )
+        step = await self._planner.plan(active.goal, [fact], domain_id=active.domain_id)
+        permissions = await self._memory.get_standing_permissions(active.goal.uid)
+        decision = self._guardrail.evaluate(step, fact.confidence, permissions)
+
+        active.step = step
+        active.fact = fact
+
+        if decision.decision == "approved":
+            return await self._execute_step(signal.session_id, active.goal.uid, active.domain_id, step)
+
+        if decision.decision == "requires_confirmation":
+            self._pending_confirmation[signal.session_id] = _PendingConfirmation(
+                step=step, uid=active.goal.uid, domain_id=active.domain_id
+            )
+
+        guidance_output = await self._guidance.shape(signal.session_id, active.goal.uid, step)
+        return OrchestrationResult(guidance=guidance_output, guardrail=decision)
+
+    async def resolve_confirmation(self, session_id: str, uid: str, accepted: bool) -> OrchestrationResult | None:
+        pending = self._pending_confirmation.get(session_id)
+        if pending is None:
+            return None
+        del self._pending_confirmation[session_id]
+
+        if not accepted:
+            guidance_output = GuidanceOutput(
+                session_id=session_id, text="Okay, I won't do that.", haptic_pattern=None, earcon=None
+            )
+            decision = GuardrailDecision(step_id=pending.step.step_id, decision="denied", reason="user declined")
+            return OrchestrationResult(guidance=guidance_output, guardrail=decision)
+
+        return await self._execute_step(session_id, uid, pending.domain_id, pending.step)
+
+    async def _execute_step(self, session_id: str, uid: str, domain_id: str, step: PlanStep) -> OrchestrationResult:
+        domain = self._domains[domain_id]
+        executor = domain.executors.get(step.payload.get("executor", "call"))
+        if executor is None:
+            guidance_output = await self._guidance.shape(session_id, uid, step)
+            decision = GuardrailDecision(step_id=step.step_id, decision="denied", reason="no executor registered")
+            return OrchestrationResult(guidance=guidance_output, guardrail=decision)
+
+        raw_outcome = await executor.execute(step.payload)
+        try:
+            outcome = ExecutorOutcome(**raw_outcome)
+        except ValidationError:
+            outcome = ExecutorOutcome(step_id=step.step_id, status="failed", structured_data={}, summary_text="")
+
+        # See this task's design note: a status-derived decision, never
+        # GuardrailAgent.evaluate() — that method's semantics are for gating
+        # a *proposed* action, not re-confirming an already-executed one.
+        report_decision = GuardrailDecision(
+            step_id=step.step_id,
+            decision="approved" if outcome.status == "success" else "denied",
+            reason=f"executor outcome status={outcome.status}",
+        )
+        report_step = PlanStep(
+            step_id=step.step_id, domain_id=domain_id,
+            description=outcome.summary_text or "The action could not be completed.",
+            action_type="guidance", requires_confirmation=False,
+            payload={"category": step.payload.get("category", "uncategorized")},
+        )
+        guidance_output = await self._guidance.shape(session_id, uid, report_step)
+        await self._memory.record_task_history(uid=uid, session_id=session_id, summary=outcome.summary_text)
+        return OrchestrationResult(guidance=guidance_output, guardrail=report_decision)
