@@ -1,5 +1,7 @@
 import pytest
 
+from google.adk.errors.already_exists_error import AlreadyExistsError
+
 from app.agents.llm_runner import LlmAgentRunner
 
 
@@ -31,9 +33,38 @@ class _FakeSessionService:
     def __init__(self) -> None:
         self.created: list[dict] = []
 
+    async def get_session(self, *, app_name: str, user_id: str, session_id: str, config=None):
+        return None
+
     async def create_session(self, *, app_name: str, user_id: str, session_id: str | None = None, state=None):
         self.created.append({"app_name": app_name, "user_id": user_id, "session_id": session_id})
         return _FakeSession()
+
+
+class _FakeSessionServiceThatRejectsDuplicateCreate:
+    """Mirrors the real `InMemorySessionService`: `get_session` returns
+    `None` until a session has been created for that
+    (app_name, user_id, session_id) key, and `create_session` raises the
+    real ADK `AlreadyExistsError` if called again for a key that already
+    exists — exactly as `InMemorySessionService._create_session_impl` does."""
+
+    def __init__(self) -> None:
+        self._sessions: dict[tuple[str, str, str], _FakeSession] = {}
+        self.get_calls: list[dict] = []
+        self.create_calls: list[dict] = []
+
+    async def get_session(self, *, app_name: str, user_id: str, session_id: str, config=None):
+        self.get_calls.append({"app_name": app_name, "user_id": user_id, "session_id": session_id})
+        return self._sessions.get((app_name, user_id, session_id))
+
+    async def create_session(self, *, app_name: str, user_id: str, session_id: str | None = None, state=None):
+        self.create_calls.append({"app_name": app_name, "user_id": user_id, "session_id": session_id})
+        key = (app_name, user_id, session_id)
+        if key in self._sessions:
+            raise AlreadyExistsError(f"Session with id {session_id} already exists.")
+        session = _FakeSession()
+        self._sessions[key] = session
+        return session
 
 
 class _FakeRunner:
@@ -72,3 +103,24 @@ async def test_invoke_returns_empty_string_when_no_final_event_has_content() -> 
     result = await llm_runner.invoke(user_id="u1", session_id="s1", prompt="x")
 
     assert result == ""
+
+
+@pytest.mark.asyncio
+async def test_invoke_reuses_an_existing_session_across_calls_without_crashing() -> None:
+    """A single Argus conversation session_id is reused across every
+    reasoning-agent invoke() call for the lifetime of that session
+    (Router, Planner, and especially Guidance, which is called once per
+    spoken instruction). The second invoke() for the same session_id must
+    not blow up on ADK's real `AlreadyExistsError`."""
+    session_service = _FakeSessionServiceThatRejectsDuplicateCreate()
+    runner = _FakeRunner([_FakeADKEvent("reply", is_final=True)])
+    llm_runner = LlmAgentRunner(agent=object(), session_service=session_service, runner=runner, app_name="argus")
+
+    first = await llm_runner.invoke(user_id="u1", session_id="s1", prompt="one")
+    second = await llm_runner.invoke(user_id="u1", session_id="s1", prompt="two")
+
+    assert first == "reply"
+    assert second == "reply"
+    assert len(session_service.create_calls) == 1
+    assert len(session_service.get_calls) == 2
+    assert runner.calls[1]["session_id"] == "s1"

@@ -26,7 +26,18 @@ class LlmAgentRunner:
         self._runner = runner or Runner(agent=agent, app_name=app_name, session_service=self._session_service)
 
     async def invoke(self, *, user_id: str, session_id: str, prompt: str) -> str:
-        await self._session_service.create_session(app_name=self._app_name, user_id=user_id, session_id=session_id)
+        existing_session = await self._session_service.get_session(
+            app_name=self._app_name, user_id=user_id, session_id=session_id
+        )
+        if existing_session is None:
+            # A given session_id is reused across every invoke() call for
+            # the lifetime of one Argus conversation (Router, Planner,
+            # Guidance...). ADK's create_session raises AlreadyExistsError
+            # on a second call for the same id, so check first instead of
+            # unconditionally creating.
+            await self._session_service.create_session(
+                app_name=self._app_name, user_id=user_id, session_id=session_id
+            )
         message = genai_types.Content(role="user", parts=[genai_types.Part(text=prompt)])
         final_text = ""
         async for event in self._runner.run_async(user_id=user_id, session_id=session_id, new_message=message):
