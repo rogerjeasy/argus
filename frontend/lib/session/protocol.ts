@@ -44,3 +44,36 @@ export function parseControlFrame(raw: string): GuidanceFrame | null {
     guardrailDecision: frame.guardrail_decision as GuardrailDecisionValue,
   };
 }
+
+export interface FramingFrame {
+  type: "framing";
+  text: string;
+  confidenceLow: boolean;
+}
+
+/**
+ * Parses one JSON "framing" control frame from the WebSocket — camera
+ * framing guidance (see backend/app/agents/guidance.py's shape_framing()).
+ * Never throws, same contract as parseControlFrame.
+ */
+export function parseFramingFrame(raw: string): FramingFrame | null {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(raw);
+  } catch (error) {
+    console.error("Failed to parse WebSocket control frame", error);
+    return null;
+  }
+
+  if (typeof payload !== "object" || payload === null || (payload as { type?: unknown }).type !== "framing") {
+    return null;
+  }
+
+  const frame = payload as Record<string, unknown>;
+  if (typeof frame.text !== "string" || typeof frame.confidence_low !== "boolean") {
+    console.error("Framing frame missing required fields", frame);
+    return null;
+  }
+
+  return { type: "framing", text: frame.text, confidenceLow: frame.confidence_low };
+}

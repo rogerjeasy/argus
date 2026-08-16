@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { parseControlFrame } from "@/lib/session/protocol";
+import { parseControlFrame, parseFramingFrame } from "@/lib/session/protocol";
 
 describe("parseControlFrame", () => {
   it("parses a well-formed guidance frame", () => {
@@ -30,5 +30,20 @@ describe("parseControlFrame", () => {
 
   it("returns null for a well-formed but unrecognized frame type", () => {
     expect(parseControlFrame(JSON.stringify({ type: "unknown" }))).toBeNull();
+  });
+});
+
+describe("parseFramingFrame", () => {
+  it("parses a well-formed framing frame", () => {
+    const frame = parseFramingFrame(JSON.stringify({ type: "framing", text: "Move slightly right.", confidence_low: false }));
+    expect(frame).toEqual({ type: "framing", text: "Move slightly right.", confidenceLow: false });
+  });
+
+  it("returns null for a non-framing frame", () => {
+    expect(parseFramingFrame(JSON.stringify({ type: "guidance", text: "x" }))).toBeNull();
+  });
+
+  it("returns null for malformed JSON without throwing", () => {
+    expect(parseFramingFrame("{not json")).toBeNull();
   });
 });

@@ -8,16 +8,17 @@ import {
   startMicrophoneCapture,
   type MicrophoneCapture,
 } from "./audio";
-import { parseControlFrame, type GuidanceFrame } from "./protocol";
+import { describeCameraError, startCameraCapture, type CameraCapture } from "./video";
+import { parseControlFrame, parseFramingFrame, type GuidanceFrame } from "./protocol";
 
 type SessionStatus = "idle" | "connecting" | "connected" | "error";
 
 const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_BASE_URL ?? "ws://localhost:8000";
 
 /** Client-to-server binary frames carry a 1-byte type prefix — must match
- * FRAME_TYPE_AUDIO/FRAME_TYPE_VIDEO in backend/app/ws/session.py exactly.
- * FRAME_TYPE_VIDEO joins this constant once camera capture is wired in. */
+ * FRAME_TYPE_AUDIO/FRAME_TYPE_VIDEO in backend/app/ws/session.py exactly. */
 const FRAME_TYPE_AUDIO = 1;
+const FRAME_TYPE_VIDEO = 2;
 
 /**
  * Owns one voice session: the authenticated WebSocket, the microphone feeding
@@ -37,9 +38,12 @@ export function useSession(token: string | null) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [captionText, setCaptionText] = useState<string | null>(null);
   const [guardrailDecision, setGuardrailDecision] = useState<GuidanceFrame["guardrailDecision"] | null>(null);
+  const [framingText, setFramingText] = useState<string | null>(null);
+  const [confidenceLow, setConfidenceLow] = useState(false);
 
   const socketRef = useRef<WebSocket | null>(null);
   const captureRef = useRef<MicrophoneCapture | null>(null);
+  const cameraRef = useRef<CameraCapture | null>(null);
   const playerRef = useRef<PcmPlayer | null>(null);
 
   // Not a useCallback: the unmount effect below must not re-run when this
@@ -48,6 +52,8 @@ export function useSession(token: string | null) {
   teardownRef.current = () => {
     captureRef.current?.stop();
     captureRef.current = null;
+    cameraRef.current?.stop();
+    cameraRef.current = null;
     playerRef.current?.close();
     playerRef.current = null;
     // Null the ref *before* calling close(): a real WebSocket.close() never
@@ -62,6 +68,8 @@ export function useSession(token: string | null) {
     // start() (clearing out a previous unclean disconnect).
     setCaptionText(null);
     setGuardrailDecision(null);
+    setFramingText(null);
+    setConfidenceLow(false);
   };
 
   useEffect(() => {
@@ -102,6 +110,29 @@ export function useSession(token: string | null) {
     }
   }, []);
 
+  const beginCameraCapture = useCallback(async (socket: WebSocket) => {
+    try {
+      const camera = await startCameraCapture((jpeg) => {
+        if (socket.readyState === WebSocket.OPEN) {
+          const prefixed = new Uint8Array(jpeg.byteLength + 1);
+          prefixed[0] = FRAME_TYPE_VIDEO;
+          prefixed.set(new Uint8Array(jpeg), 1);
+          socket.send(prefixed.buffer);
+        }
+      });
+      if (socketRef.current !== socket) {
+        camera.stop();
+        return;
+      }
+      cameraRef.current = camera;
+    } catch (error) {
+      // Camera is a secondary channel — audio-only degraded mode is still a
+      // working session, so a camera failure logs and continues rather than
+      // tearing down the whole session the way a microphone failure does.
+      console.error(describeCameraError(error));
+    }
+  }, []);
+
   const start = useCallback(async () => {
     if (!token) {
       setStatus("error");
@@ -128,6 +159,7 @@ export function useSession(token: string | null) {
     socket.onopen = () => {
       setStatus("connected");
       void beginCapture(socket);
+      void beginCameraCapture(socket);
     };
     socket.onerror = () => {
       setStatus("error");
@@ -158,6 +190,12 @@ export function useSession(token: string | null) {
         return;
       }
       if (typeof event.data === "string") {
+        const framingFrame = parseFramingFrame(event.data);
+        if (framingFrame) {
+          setFramingText(framingFrame.text);
+          setConfidenceLow(framingFrame.confidenceLow);
+          return;
+        }
         const frame = parseControlFrame(event.data);
         if (frame) {
           setCaptionText(frame.text);
@@ -168,7 +206,7 @@ export function useSession(token: string | null) {
         // aloud to a screen reader.
       }
     };
-  }, [token, beginCapture]);
+  }, [token, beginCapture, beginCameraCapture]);
 
   const stop = useCallback(() => {
     teardownRef.current();
@@ -176,5 +214,5 @@ export function useSession(token: string | null) {
     setErrorMessage(null);
   }, []);
 
-  return { status, errorMessage, captionText, guardrailDecision, start, stop };
+  return { status, errorMessage, captionText, guardrailDecision, framingText, confidenceLow, start, stop };
 }
