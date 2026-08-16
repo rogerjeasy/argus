@@ -257,6 +257,19 @@ files = [
 ]
 
 [[package]]
+name = "audioop-lts"
+version = "0.2.2"
+description = "LTS Port of Python audioop"
+optional = false
+python-versions = ">=3.13"
+groups = ["main"]
+markers = "python_version >= \"3.13\""
+files = [
+    {file = "audioop_lts-0.2.2-cp313-abi3-win_amd64.whl", hash = "sha256:a2c2a947fae7d1062ef08c4e369e0ba2086049a5e598fda41122535557012e9e"},
+    {file = "audioop_lts-0.2.2.tar.gz", hash = "sha256:64d0c62d88e67b98a1a5e71987b7aa7b5bcffc7dcee65b635823dbdd0a8dbbd0"},
+]
+
+[[package]]
 name = "authlib"
 version = "1.7.2"
 description = "The ultimate Python library in building OAuth and OpenID Connect servers and clients."
@@ -3335,4 +3348,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.12"
-content-hash = "fe5a9b4d7b32dd1a161143a8cae751860368320239f387ec6b9d9388df78533c"
+content-hash = "775d85d059cc12b80e6150543bd8a4d87751fd3e52da1cef236dfa56812b7c04"

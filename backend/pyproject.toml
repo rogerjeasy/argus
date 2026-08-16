@@ -24,6 +24,11 @@ opentelemetry-exporter-gcp-trace = "^1.7.0"
 gtfs-realtime-bindings = "^2.2.0"
 httpx = "^0.28.1"
 twilio = "^9.11.0"
+#: audioop-lts only supports Python 3.13+ (it's a backport of the module
+#: removed from stdlib in 3.13 — see design doc §3 / this plan's Task 9).
+#: Below 3.13, stdlib audioop already provides the same API, so this stays
+#: python-restricted rather than an unconditional dependency.
+audioop-lts = {version = "^0.2.2", python = ">=3.13"}
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.0"
