@@ -122,3 +122,72 @@ async def test_bounded_replan_escalates_instead_of_looping_forever() -> None:
     assert result.guardrail.decision == "denied"
     assert "escalat" in result.guidance.text.lower()
     assert result.guidance.earcon == "earcon-escalation"
+
+
+@pytest.mark.asyncio
+async def test_handle_scene_signal_triggers_replan_when_feed_confirms_the_camera() -> None:
+    from app.models.agent_events import SceneSignal
+
+    source = FakeGroundingSource()
+    source.set_answer("platform", "4")
+    orchestrator = _build_orchestrator(source, planner_response=_planner_json())
+
+    goal = PerceivedGoal(session_id="s1", uid="u1", raw_text="get me to platform 4")
+    await orchestrator.handle_goal(goal)
+
+    # The camera and the feed now agree the plan is stale.
+    source.set_answer("platform", "7")
+    signal = SceneSignal(session_id="s1", kind="signage_text", text="Platform 7", confidence=0.9)
+
+    result = await orchestrator.handle_scene_signal(signal)
+
+    assert result is not None
+    assert result.guidance.haptic_pattern == "pattern-urgent"
+
+
+@pytest.mark.asyncio
+async def test_handle_scene_signal_does_nothing_when_the_feed_disagrees_with_the_camera() -> None:
+    from app.models.agent_events import SceneSignal
+
+    source = FakeGroundingSource()
+    source.set_answer("platform", "4")
+    orchestrator = _build_orchestrator(source, planner_response=_planner_json())
+
+    goal = PerceivedGoal(session_id="s1", uid="u1", raw_text="get me to platform 4")
+    await orchestrator.handle_goal(goal)
+
+    # Camera claims platform 7, but the real feed (tie-breaker) still says 4
+    # — a noisy/wrong camera read must not override it.
+    signal = SceneSignal(session_id="s1", kind="signage_text", text="Platform 7", confidence=0.9)
+
+    result = await orchestrator.handle_scene_signal(signal)
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_handle_scene_signal_ignores_a_low_confidence_signal_without_ever_regrounding() -> None:
+    from app.models.agent_events import SceneSignal
+
+    source = FakeGroundingSource()
+    source.set_answer("platform", "4")
+    orchestrator = _build_orchestrator(source, planner_response=_planner_json())
+
+    goal = PerceivedGoal(session_id="s1", uid="u1", raw_text="get me to platform 4")
+    await orchestrator.handle_goal(goal)
+
+    signal = SceneSignal(session_id="s1", kind="signage_text", text="Platform 7", confidence=0.1)
+
+    result = await orchestrator.handle_scene_signal(signal)
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_handle_scene_signal_for_an_unknown_session_returns_none() -> None:
+    from app.models.agent_events import SceneSignal
+
+    orchestrator = _build_orchestrator(FakeGroundingSource(), planner_response=_planner_json())
+    signal = SceneSignal(session_id="never-started", kind="signage_text", text="Platform 7", confidence=0.9)
+
+    assert await orchestrator.handle_scene_signal(signal) is None

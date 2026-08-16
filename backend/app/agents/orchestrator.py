@@ -10,7 +10,9 @@ from app.agents.planner import PlannerAgent
 from app.agents.replanning import ReplanningAgent
 from app.agents.router import DomainRouterAgent
 from app.core.telemetry import get_tracer
-from app.models.agent_events import GroundedFact, GuardrailDecision, GuidanceOutput, PerceivedGoal, PlanStep
+from app.models.agent_events import (
+    GroundedFact, GuardrailDecision, GuidanceOutput, PerceivedGoal, PlanStep, SceneSignal,
+)
 
 tracer = get_tracer(__name__)
 
@@ -40,11 +42,12 @@ class TaskOrchestrator:
     first, by construction, not by every LLM call being separately trusted
     to respect that rule.
 
-    Note on scope: `check_for_divergence` is not wired to any timer or
-    live trigger in this phase — a Phase 1 stub domain has no continuous
-    scene signal to react to. It exists and is fully tested here because a
-    later phase (once GTFS-Realtime gives a real reason to re-poll) wires a
-    real trigger to it; this phase proves the *behavior*, not the trigger.
+    Note on scope: Phase 1 built `check_for_divergence` with no real trigger
+    wired to it yet — a stub domain has no continuous scene signal to react
+    to. `handle_scene_signal` (Phase 2b) is that trigger: the camera never
+    talks to Guidance directly, it only ever earns the right to ask
+    `check_for_divergence` to re-check the real feed, which remains the
+    actual tie-breaker.
     """
 
     def __init__(
@@ -135,3 +138,18 @@ class TaskOrchestrator:
         active.step = new_step
 
         return OrchestrationResult(guidance=guidance_output, guardrail=decision)
+
+    async def handle_scene_signal(self, signal: SceneSignal) -> OrchestrationResult | None:
+        active = self._active.get(signal.session_id)
+        if active is None:
+            return None
+
+        grounding = self._grounding_agents[active.domain_id]
+        if not grounding.scene_signal_suggests_divergence(expected=active.fact, signal=signal):
+            return None
+
+        # The camera only ever earns the right to ask "please re-check" —
+        # check_for_divergence re-queries the real feed and is the actual
+        # tie-breaker (design doc §4), exactly as it already was for
+        # Phase 2a's polling-triggered divergence.
+        return await self.check_for_divergence(session_id=signal.session_id, uid=active.goal.uid)
