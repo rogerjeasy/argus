@@ -16,6 +16,12 @@ class SceneSignal(BaseModel):
     confidence: float
 
 
+class FramingAssessment(BaseModel):
+    session_id: str
+    text_detected: bool
+    position: str = Field(pattern="^(left|right|center|too-close|too-far|none)$")
+
+
 class GroundedFact(BaseModel):
     key: str
     value: str
