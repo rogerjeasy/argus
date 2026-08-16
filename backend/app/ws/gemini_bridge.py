@@ -16,6 +16,35 @@ logger = logging.getLogger(__name__)
 INPUT_SAMPLE_RATE = 16_000
 INPUT_MIME_TYPE = f"audio/pcm;rate={INPUT_SAMPLE_RATE}"
 
+#: Gemini Live's only channel for reporting what it sees in a camera frame —
+#: a structured function call, not free text, so PerceptionAgent (the one
+#: place raw model output gets parsed) has a fixed shape to read instead of
+#: another prose string to interpret.
+_SCENE_OBSERVATION_FUNCTION = genai_types.FunctionDeclaration(
+    name="report_scene_observation",
+    description="Report what the camera currently sees. Call this once for every camera frame received.",
+    parameters={
+        "type": "OBJECT",
+        "properties": {
+            "text_detected": {"type": "BOOLEAN", "description": "Whether readable text is visible in frame."},
+            "position": {
+                "type": "STRING",
+                "enum": ["left", "right", "center", "too-close", "too-far", "none"],
+                "description": "Where the readable text is relative to frame center, or 'none' if not detected.",
+            },
+            "signage_text": {"type": "STRING", "description": "The legible text, if any; empty string otherwise."},
+            "confidence": {"type": "NUMBER", "description": "Confidence 0.0-1.0 in the signage_text reading."},
+        },
+        "required": ["text_detected", "position", "signage_text", "confidence"],
+    },
+)
+
+_SCENE_OBSERVATION_SYSTEM_INSTRUCTION = (
+    "You will periodically receive camera frames from a blind or low-vision user's device. "
+    "For every frame, call report_scene_observation exactly once describing what you see. "
+    "Do not speak about what the camera sees — only call the tool."
+)
+
 
 def _default_client_factory(settings: Settings) -> Callable[[], Any]:
     def factory() -> Any:
@@ -62,9 +91,13 @@ class GeminiLiveBridge:
         self._relay_current_turn = False
         self._pending_speak_relay = False
         self._pending_input_transcript = ""
+        self._on_scene_observation: Callable[[dict], Awaitable[None]] | None = None
 
     def set_on_input_transcript(self, callback: Callable[[str], Awaitable[None]]) -> None:
         self._on_input_transcript = callback
+
+    def set_on_scene_observation(self, callback: Callable[[dict], Awaitable[None]]) -> None:
+        self._on_scene_observation = callback
 
     async def connect(self) -> None:
         client = self._client_factory()
@@ -80,6 +113,8 @@ class GeminiLiveBridge:
                 response_modalities=["AUDIO"],
                 input_audio_transcription=genai_types.AudioTranscriptionConfig(),
                 output_audio_transcription=genai_types.AudioTranscriptionConfig(),
+                tools=[genai_types.Tool(function_declarations=[_SCENE_OBSERVATION_FUNCTION])],
+                system_instruction=_SCENE_OBSERVATION_SYSTEM_INSTRUCTION,
             ),
         )
         self._live_session = await self._session_cm.__aenter__()
@@ -90,6 +125,11 @@ class GeminiLiveBridge:
         await self._live_session.send_realtime_input(
             audio=genai_types.Blob(data=chunk, mime_type=INPUT_MIME_TYPE)
         )
+
+    async def send_video_frame(self, jpeg_bytes: bytes) -> None:
+        if self._live_session is None:
+            raise RuntimeError("call connect() before send_video_frame()")
+        await self._live_session.send_realtime_input(video=genai_types.Blob(data=jpeg_bytes, mime_type="image/jpeg"))
 
     async def speak(self, text: str) -> None:
         """Send orchestrator-vetted text as a model turn for Gemini to
@@ -115,6 +155,9 @@ class GeminiLiveBridge:
         if self._live_session is None:
             raise RuntimeError("call connect() before receive_audio()")
         async for response in self._live_session.receive():
+            if response.tool_call is not None:
+                await self._handle_tool_call(response.tool_call)
+
             content = response.server_content
             if content is not None:
                 self._turn_active = True
@@ -138,6 +181,14 @@ class GeminiLiveBridge:
                     self._pending_speak_relay = False
                 else:
                     self._relay_current_turn = False
+
+    async def _handle_tool_call(self, tool_call: Any) -> None:
+        for fc in tool_call.function_calls:
+            if fc.name == "report_scene_observation" and self._on_scene_observation is not None:
+                await self._on_scene_observation(dict(fc.args))
+            await self._live_session.send_tool_response(
+                function_responses=genai_types.FunctionResponse(id=fc.id, name=fc.name, response={"status": "received"})
+            )
 
     async def close(self) -> None:
         """Finalize the Live session, idempotently. Only `__aexit__` is

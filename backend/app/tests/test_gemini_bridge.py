@@ -27,9 +27,12 @@ class _FakeServerContent:
 
 
 class _FakeMessage:
-    def __init__(self, *, server_content: _FakeServerContent | None, data: bytes | None) -> None:
+    def __init__(
+        self, *, server_content: _FakeServerContent | None = None, data: bytes | None = None, tool_call=None
+    ) -> None:
         self.server_content = server_content
         self.data = data
+        self.tool_call = tool_call
 
 
 class _FakeLiveSession:
@@ -40,7 +43,9 @@ class _FakeLiveSession:
     def __init__(self, replies: list[_FakeMessage]) -> None:
         self._replies = replies
         self.realtime_sent: list[dict] = []
+        self.video_sent: list[dict] = []
         self.client_content_sent: list[dict] = []
+        self.tool_responses_sent: list = []
         self.close_calls = 0
         self.aexit_calls = 0
 
@@ -48,11 +53,17 @@ class _FakeLiveSession:
     def closed(self) -> bool:
         return self.close_calls > 0 or self.aexit_calls > 0
 
-    async def send_realtime_input(self, *, audio) -> None:
-        self.realtime_sent.append({"data": audio.data, "mime_type": audio.mime_type})
+    async def send_realtime_input(self, *, audio=None, video=None) -> None:
+        if audio is not None:
+            self.realtime_sent.append({"data": audio.data, "mime_type": audio.mime_type})
+        if video is not None:
+            self.video_sent.append({"data": video.data, "mime_type": video.mime_type})
 
     async def send_client_content(self, *, turns, turn_complete: bool) -> None:
         self.client_content_sent.append({"text": turns.parts[0].text, "turn_complete": turn_complete})
+
+    async def send_tool_response(self, *, function_responses) -> None:
+        self.tool_responses_sent.append(function_responses)
 
     async def receive(self) -> AsyncIterator[_FakeMessage]:
         for message in self._replies:
@@ -262,3 +273,82 @@ async def test_close_is_idempotent_and_safe_before_connect() -> None:
     await bridge.close()
 
     assert fake_session.aexit_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_connect_configures_the_scene_observation_tool() -> None:
+    fake_session = _FakeLiveSession(replies=[])
+    fake_client = MagicMock()
+    fake_client.aio.live.connect.return_value = fake_session
+
+    bridge = GeminiLiveBridge(_settings(), client_factory=lambda: fake_client)
+    await bridge.connect()
+
+    _, kwargs = fake_client.aio.live.connect.call_args
+    tools = kwargs["config"].tools
+    assert tools is not None
+    names = [fd.name for tool in tools for fd in tool.function_declarations]
+    assert "report_scene_observation" in names
+
+
+@pytest.mark.asyncio
+async def test_send_video_frame_sends_a_video_blob() -> None:
+    fake_session = _FakeLiveSession(replies=[])
+    fake_client = MagicMock()
+    fake_client.aio.live.connect.return_value = fake_session
+
+    bridge = GeminiLiveBridge(_settings(), client_factory=lambda: fake_client)
+    await bridge.connect()
+    await bridge.send_video_frame(b"fake-jpeg-bytes")
+
+    assert fake_session.video_sent == [{"data": b"fake-jpeg-bytes", "mime_type": "image/jpeg"}]
+
+
+@pytest.mark.asyncio
+async def test_receive_audio_dispatches_tool_calls_and_acks_them() -> None:
+    from google.genai import types as genai_types
+
+    function_call = genai_types.FunctionCall(id="call-1", name="report_scene_observation", args={"text_detected": True})
+    replies = [_FakeMessage(tool_call=genai_types.LiveServerToolCall(function_calls=[function_call]))]
+    fake_session = _FakeLiveSession(replies=replies)
+    fake_client = MagicMock()
+    fake_client.aio.live.connect.return_value = fake_session
+
+    bridge = GeminiLiveBridge(_settings(), client_factory=lambda: fake_client)
+    received_args = []
+
+    async def _on_observation(args: dict) -> None:
+        received_args.append(args)
+
+    bridge.set_on_scene_observation(_on_observation)
+    await bridge.connect()
+
+    received = [chunk async for chunk in bridge.receive_audio()]
+
+    assert received == []  # no server_content/data on this reply — only the tool-call side effect matters
+    assert received_args == [{"text_detected": True}]
+    assert len(fake_session.tool_responses_sent) == 1
+    assert fake_session.tool_responses_sent[0].id == "call-1"
+
+
+@pytest.mark.asyncio
+async def test_receive_audio_ignores_tool_calls_when_no_callback_is_set() -> None:
+    # Mirrors test_receive_audio_is_a_no_op_when_no_transcript_callback_is_set
+    # — set_on_scene_observation() is likewise optional, and an unset
+    # callback must still ack the tool call (Gemini blocks the turn on an
+    # un-acked function call) without raising.
+    from google.genai import types as genai_types
+
+    function_call = genai_types.FunctionCall(id="call-1", name="report_scene_observation", args={})
+    replies = [_FakeMessage(tool_call=genai_types.LiveServerToolCall(function_calls=[function_call]))]
+    fake_session = _FakeLiveSession(replies=replies)
+    fake_client = MagicMock()
+    fake_client.aio.live.connect.return_value = fake_session
+
+    bridge = GeminiLiveBridge(_settings(), client_factory=lambda: fake_client)
+    await bridge.connect()
+
+    received = [chunk async for chunk in bridge.receive_audio()]
+
+    assert received == []
+    assert len(fake_session.tool_responses_sent) == 1
