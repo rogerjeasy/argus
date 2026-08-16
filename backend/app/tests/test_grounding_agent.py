@@ -41,3 +41,29 @@ def test_check_divergence_returns_a_signal_when_values_differ() -> None:
     assert signal.expected == "4"
     assert signal.observed == "7"
     assert signal.plan_step_id == "step-1"
+
+
+@pytest.mark.asyncio
+async def test_ground_forwards_raw_goal_text_to_the_domain() -> None:
+    class _RecordingDomain:
+        domain_id = "recording"
+        executors: dict = {}
+
+        def __init__(self) -> None:
+            self.received: str | None = None
+
+        def matches(self, goal_text: str) -> bool:
+            return True
+
+        async def ground(self, request):
+            self.received = request.raw_goal_text
+            from datetime import datetime, timezone
+            from app.models.agent_events import GroundedFact
+            return GroundedFact(key=request.key, value="x", source="test", confidence=1.0, as_of=datetime.now(timezone.utc))
+
+    domain = _RecordingDomain()
+    agent = GroundingAgent(domain)
+
+    await agent.ground("platform", "get me to Zürich HB")
+
+    assert domain.received == "get me to Zürich HB"

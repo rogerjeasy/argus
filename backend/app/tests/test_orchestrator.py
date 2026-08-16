@@ -41,7 +41,7 @@ def _build_orchestrator(source: FakeGroundingSource, *, planner_response: str) -
         grounding_agents={"stub": grounding},
         planner=PlannerAgent(planner_runner),
         guardrail=GuardrailAgent(),
-        replanning=ReplanningAgent(grounding),
+        replanning=ReplanningAgent(),
         guidance=GuidanceAgent(guidance_runner),
         memory=MemoryAgent(db),
         escalation=EscalationAgent(db, _FakePublisher(), LoggingNotificationSender()),
