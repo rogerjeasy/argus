@@ -1,5 +1,18 @@
 from app.agents.llm_runner import LlmAgentRunner
-from app.models.agent_events import GuidanceOutput, PlanStep
+from app.models.agent_events import FramingAssessment, GuidanceOutput, PlanStep
+
+#: Fixed, not model-generated — same latency/consistency reasoning as the
+#: haptic/earcon vocabulary in shape(): a blind/low-vision user needs
+#: framing feedback fast and identical every time, not phrased freshly by
+#: an LLM call on every camera frame.
+_POSITION_PHRASES = {
+    "left": "Move slightly left.",
+    "right": "Move slightly right.",
+    "too-close": "Move back a little.",
+    "too-far": "Move a bit closer.",
+    "center": "Hold steady, almost there.",
+    "none": "I can't see readable text yet. Try panning the camera slowly.",
+}
 
 
 class GuidanceAgent:
@@ -22,4 +35,13 @@ class GuidanceAgent:
             text=text,
             haptic_pattern="pattern-urgent" if urgent else "pattern-forward",
             earcon="earcon-plan-updated",
+        )
+
+    def shape_framing(self, session_id: str, assessment: FramingAssessment) -> GuidanceOutput:
+        text = _POSITION_PHRASES.get(assessment.position, _POSITION_PHRASES["none"])
+        return GuidanceOutput(
+            session_id=session_id,
+            text=text,
+            haptic_pattern=None,
+            earcon="earcon-low-confidence" if not assessment.text_detected else None,
         )
