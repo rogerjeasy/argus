@@ -21,6 +21,14 @@ class GroundingRequest(BaseModel):
     #: Clock override for deterministic tests only — production code leaves
     #: this unset and GtfsStaticIndex.resolve_stop() falls back to wall time.
     now: _time | None = None
+    #: Which triage subflow this grounding call is for ("call"|"form"|
+    #: "inform-only") — optional and defaulted so every non-PersonalAdmin
+    #: call site (StubDomain, TransitDomain) is unaffected. PersonalAdminDomain
+    #: needs it: a "form" subflow's grounded fact isn't "do we know this
+    #: provider's phone number" the way "call" is — forms autofill from the
+    #: profile directly in build_executor_payload, so ground() must not deny
+    #: on that irrelevant question.
+    subflow: str = ""
 
     model_config = {"arbitrary_types_allowed": True}
 

@@ -439,3 +439,177 @@ async def test_handle_document_signal_with_inform_only_subflow_never_grounds_or_
     assert result is not None
     assert result.guardrail.decision == "approved"
     assert executor.received_payloads == []
+
+
+class _FakePersonalAdminDomainWithPayload(_FakePersonalAdminDomain):
+    def __init__(self, *, triage_result, fact, executors: dict, payload_extra: dict) -> None:
+        super().__init__(triage_result=triage_result, fact=fact, executors=executors)
+        self._payload_extra = payload_extra
+
+    async def build_executor_payload(self, step, fact, triage_result, uid, signal=None):
+        payload = dict(step.payload)
+        payload["step_id"] = step.step_id
+        payload["executor"] = "form"
+        payload.update(self._payload_extra)
+        return payload
+
+
+def _form_orchestrator(*, payload_extra: dict, executor_outcome: dict | None = None):
+    from datetime import datetime, timezone
+
+    from app.domains.personal_admin.models import TriageResult
+    from app.models.agent_events import GroundedFact
+
+    triage_result = TriageResult(category="medical", urgency="normal", subflow="form", confidence=0.9)
+    fact = GroundedFact(key="medical", value="form", source="user_profile", confidence=1.0, as_of=datetime.now(timezone.utc))
+    executor = _FakeExecutor(executor_outcome or {"step_id": "s1", "status": "success", "structured_data": {}, "summary_text": "Form submitted."})
+    domain = _FakePersonalAdminDomainWithPayload(
+        triage_result=triage_result, fact=fact, executors={"form": executor}, payload_extra=payload_extra
+    )
+
+    router_runner = FakeLlmAgentRunner()
+    planner_runner = FakeLlmAgentRunner(next_response=_planner_json_for("personal_admin"))
+    guidance_runner = FakeLlmAgentRunner(next_response="__ECHO_STEP_DESCRIPTION__")
+    grounding = GroundingAgent(domain)
+    db = FakeFirestoreClient()
+    orch = TaskOrchestrator(
+        perception=PerceptionAgent(),
+        router=DomainRouterAgent(router_runner, domains=[domain]),
+        grounding_agents={"personal_admin": grounding},
+        domains={"personal_admin": domain},
+        planner=PlannerAgent(planner_runner),
+        guardrail=GuardrailAgent(),
+        replanning=ReplanningAgent(),
+        guidance=_EchoingGuidanceAgent(guidance_runner),
+        memory=MemoryAgent(db),
+        escalation=EscalationAgent(db, _FakePublisher(), LoggingNotificationSender()),
+    )
+    return orch, executor
+
+
+@pytest.mark.asyncio
+async def test_handle_document_signal_pauses_for_one_missing_form_field() -> None:
+    orch, executor = _form_orchestrator(payload_extra={
+        "fields": [
+            {"name": "full_name", "label": "Full name", "value": "Jordan Rivera", "source": "memory_profile"},
+            {"name": "policy_number", "label": "Policy number", "value": None, "source": "unresolved"},
+        ],
+        "missing_field": "policy_number", "unresolved_field_count": 1,
+    })
+    goal = PerceivedGoal(session_id="sess-1", uid="user-1", raw_text="deal with this form")
+    await orch.handle_goal(goal)
+    signal = SceneSignal(session_id="sess-1", kind="form_schema", text="Insurance Claim Form", confidence=0.9)
+
+    result = await orch.handle_document_signal(signal)
+
+    assert result is not None
+    assert result.guardrail.decision == "requires_field_input"
+    assert result.guardrail.field_label == "Policy number"
+    assert executor.received_payloads == []  # never executed before the field is resolved
+
+
+@pytest.mark.asyncio
+async def test_resolve_field_input_injects_value_and_proceeds_to_confirmation_gate() -> None:
+    orch, executor = _form_orchestrator(payload_extra={
+        "fields": [{"name": "policy_number", "label": "Policy number", "value": None, "source": "unresolved"}],
+        "missing_field": "policy_number", "unresolved_field_count": 1,
+    })
+    goal = PerceivedGoal(session_id="sess-1", uid="user-1", raw_text="deal with this form")
+    await orch.handle_goal(goal)
+    signal = SceneSignal(session_id="sess-1", kind="form_schema", text="Insurance Claim Form", confidence=0.9)
+    await orch.handle_document_signal(signal)
+
+    result = await orch.resolve_field_input("sess-1", "user-1", "POL-12345")
+
+    assert result is not None
+    # No standing permission seeded — resolving the field re-enters at
+    # Guardrail, which still requires the normal confirm-before-submit gate.
+    assert result.guardrail.decision == "requires_confirmation"
+    assert executor.received_payloads == []
+
+
+@pytest.mark.asyncio
+async def test_resolve_field_input_then_confirmation_executes_with_the_resolved_value() -> None:
+    orch, executor = _form_orchestrator(payload_extra={
+        "fields": [{"name": "policy_number", "label": "Policy number", "value": None, "source": "unresolved"}],
+        "missing_field": "policy_number", "unresolved_field_count": 1,
+    })
+    goal = PerceivedGoal(session_id="sess-1", uid="user-1", raw_text="deal with this form")
+    await orch.handle_goal(goal)
+    signal = SceneSignal(session_id="sess-1", kind="form_schema", text="Insurance Claim Form", confidence=0.9)
+    await orch.handle_document_signal(signal)
+    await orch.resolve_field_input("sess-1", "user-1", "POL-12345")
+
+    result = await orch.resolve_confirmation("sess-1", "user-1", accepted=True)
+
+    assert result is not None
+    assert result.guardrail.decision == "approved"
+    assert executor.received_payloads[0]["fields"][0]["value"] == "POL-12345"
+    assert executor.received_payloads[0]["fields"][0]["source"] == "user_provided"
+
+
+@pytest.mark.asyncio
+async def test_a_spoken_answer_resolves_a_pending_field_request_not_a_new_goal() -> None:
+    orch, executor = _form_orchestrator(payload_extra={
+        "fields": [{"name": "policy_number", "label": "Policy number", "value": None, "source": "unresolved"}],
+        "missing_field": "policy_number", "unresolved_field_count": 1,
+    })
+    goal = PerceivedGoal(session_id="sess-1", uid="user-1", raw_text="deal with this form")
+    await orch.handle_goal(goal)
+    signal = SceneSignal(session_id="sess-1", kind="form_schema", text="Insurance Claim Form", confidence=0.9)
+    await orch.handle_document_signal(signal)
+
+    result = await orch.handle_goal(PerceivedGoal(session_id="sess-1", uid="user-1", raw_text="POL-12345"))
+
+    assert result.guardrail.decision == "requires_confirmation"
+    assert executor.received_payloads == []
+
+
+@pytest.mark.asyncio
+async def test_more_than_one_missing_field_is_denied_not_paused() -> None:
+    orch, executor = _form_orchestrator(payload_extra={
+        "fields": [
+            {"name": "policy_number", "label": "Policy number", "value": None, "source": "unresolved"},
+            {"name": "employer_name", "label": "Employer name", "value": None, "source": "unresolved"},
+        ],
+        "missing_field": None, "unresolved_field_count": 2,
+    })
+    goal = PerceivedGoal(session_id="sess-1", uid="user-1", raw_text="deal with this form")
+    await orch.handle_goal(goal)
+    signal = SceneSignal(session_id="sess-1", kind="form_schema", text="Insurance Claim Form", confidence=0.9)
+
+    result = await orch.handle_document_signal(signal)
+
+    assert result is not None
+    assert result.guardrail.decision == "denied"
+    assert executor.received_payloads == []
+    # Nothing was left pending — a subsequent resolve call (of either kind)
+    # has nothing to resolve, proving this path pauses neither mode.
+    assert await orch.resolve_confirmation("sess-1", "user-1", accepted=True) is None
+    assert await orch.resolve_field_input("sess-1", "user-1", "anything") is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_field_input_with_no_pending_field_request_returns_none() -> None:
+    orch, _ = _form_orchestrator(payload_extra={"fields": [], "missing_field": None, "unresolved_field_count": 0})
+
+    assert await orch.resolve_field_input("no-such-session", "user-1", "anything") is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_confirmation_ignores_a_pending_field_request() -> None:
+    """A pending field_request is not a pending confirmation — the wrong
+    resolver must not clear or answer it."""
+    orch, executor = _form_orchestrator(payload_extra={
+        "fields": [{"name": "policy_number", "label": "Policy number", "value": None, "source": "unresolved"}],
+        "missing_field": "policy_number", "unresolved_field_count": 1,
+    })
+    goal = PerceivedGoal(session_id="sess-1", uid="user-1", raw_text="deal with this form")
+    await orch.handle_goal(goal)
+    signal = SceneSignal(session_id="sess-1", kind="form_schema", text="Insurance Claim Form", confidence=0.9)
+    await orch.handle_document_signal(signal)
+
+    result = await orch.resolve_confirmation("sess-1", "user-1", accepted=True)
+
+    assert result is None
+    assert executor.received_payloads == []

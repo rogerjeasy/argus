@@ -175,3 +175,74 @@ def test_form_field_and_outcome_models_accept_their_documented_shapes() -> None:
 
     assert outcome.fields[0].source == "unresolved"
     assert outcome.missing_field == "policy_number"
+
+
+@pytest.mark.asyncio
+async def test_ground_returns_full_confidence_for_form_subflow_with_no_known_provider() -> None:
+    domain, _ = _domain()
+
+    fact = await domain.ground(GroundingRequest(key="medical", uid="user-with-no-profile", subflow="form"))
+
+    assert fact.confidence == 1.0
+
+
+@pytest.mark.asyncio
+async def test_build_executor_payload_extracts_and_autofills_form_fields() -> None:
+    from datetime import datetime, timezone
+
+    from app.agents.guardrail import GuardrailAgent
+    from app.agents.memory import MemoryAgent, PersonalAdminProfile
+    from app.domains.personal_admin.models import TriageResult
+    from app.models.agent_events import GroundedFact, PlanStep
+
+    extraction_response = json.dumps({"fields": [
+        {"name": "full_name", "label": "Full name", "value": "Jordan Rivera", "source": "memory_profile"},
+        {"name": "policy_number", "label": "Policy number", "value": None, "source": "unresolved"},
+    ]})
+    runner = FakeLlmAgentRunner(next_response=extraction_response)
+    memory = MemoryAgent(FakeFirestoreClient(), kms=None)
+    await memory.update_profile("user-1", PersonalAdminProfile(full_name="Jordan Rivera"))
+    domain = PersonalAdminDomain(runner, memory, GuardrailAgent())
+
+    step = PlanStep(
+        step_id="step-1", domain_id="personal_admin", description="fill out this insurance form",
+        action_type="execute", requires_confirmation=False, payload={"category": "medical"},
+    )
+    fact = GroundedFact(key="medical", value="form", source="user_profile", confidence=1.0, as_of=datetime.now(timezone.utc))
+    triage_result = TriageResult(category="medical", urgency="normal", subflow="form", confidence=0.9)
+    signal = SceneSignal(session_id="s1", kind="form_schema", text="Insurance Claim Form: Name ___ Policy # ___", confidence=0.9)
+
+    payload = await domain.build_executor_payload(step, fact, triage_result, "user-1", signal=signal)
+
+    assert payload["executor"] == "form"
+    assert payload["fields"][0] == {"name": "full_name", "label": "Full name", "value": "Jordan Rivera", "source": "memory_profile"}
+    assert payload["missing_field"] == "policy_number"
+    assert "Insurance Claim Form" in runner.calls[-1]["prompt"]
+    assert "Jordan Rivera" in runner.calls[-1]["prompt"]
+
+
+@pytest.mark.asyncio
+async def test_build_executor_payload_form_with_no_missing_fields() -> None:
+    from datetime import datetime, timezone
+
+    from app.agents.guardrail import GuardrailAgent
+    from app.agents.memory import MemoryAgent
+    from app.domains.personal_admin.models import TriageResult
+    from app.models.agent_events import GroundedFact, PlanStep
+
+    extraction_response = json.dumps({"fields": [
+        {"name": "full_name", "label": "Full name", "value": "Jordan Rivera", "source": "memory_profile"},
+    ]})
+    runner = FakeLlmAgentRunner(next_response=extraction_response)
+    domain = PersonalAdminDomain(runner, MemoryAgent(FakeFirestoreClient(), kms=None), GuardrailAgent())
+    step = PlanStep(
+        step_id="step-1", domain_id="personal_admin", description="fill out this form",
+        action_type="execute", requires_confirmation=False, payload={"category": "bill"},
+    )
+    fact = GroundedFact(key="bill", value="form", source="user_profile", confidence=1.0, as_of=datetime.now(timezone.utc))
+    triage_result = TriageResult(category="bill", urgency="normal", subflow="form", confidence=0.9)
+    signal = SceneSignal(session_id="s1", kind="form_schema", text="Name ___", confidence=0.9)
+
+    payload = await domain.build_executor_payload(step, fact, triage_result, "user-1", signal=signal)
+
+    assert payload["missing_field"] is None

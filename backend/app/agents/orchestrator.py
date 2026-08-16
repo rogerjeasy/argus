@@ -49,10 +49,13 @@ class _ActiveTask:
 
 
 @dataclass
-class _PendingConfirmation:
+class _PendingInput:
     step: PlanStep
     uid: str
     domain_id: str
+    mode: str  # "confirm" | "field_request"
+    confidence: float
+    field_name: str | None = None  # only set when mode == "field_request"
 
 
 class TaskOrchestrator:
@@ -74,11 +77,19 @@ class TaskOrchestrator:
     Phase 3a adds a second kind of scene signal: a photographed document
     (`handle_document_signal`), dispatched via `hasattr(domain, "triage")`
     so Transit's own divergence flow is completely untouched. A step that
-    requires confirmation now pauses in `_pending_confirmation` instead of
+    requires confirmation now pauses in `_pending_input` instead of
     executing — `resolve_confirmation` (a spoken "yes"/"no" or a tapped
     button) is the only thing that can release it, and `handle_goal` checks
     for a pending confirmation before ever routing a new goal, so a spoken
     "yes" is never misrouted as a fresh, unrelated request.
+
+    Phase 3b generalizes `_pending_input` to a second mode, "field_request":
+    Form-Filling's one-missing-field ask needs a free-text answer, not a
+    yes/no. Still exactly one pending thing per session — a form that needs
+    both a field value and a confirmation pauses twice in sequence, sharing
+    the same slot, never both modes at once. `resolve_field_input` mirrors
+    `resolve_confirmation`'s shape; `_gate_and_respond` is the tail both the
+    initial flow and a just-resolved field converge on.
     """
 
     def __init__(
@@ -106,13 +117,21 @@ class TaskOrchestrator:
         self._memory = memory
         self._escalation = escalation
         self._active: dict[str, _ActiveTask] = {}  # keyed by session_id
-        self._pending_confirmation: dict[str, _PendingConfirmation] = {}  # keyed by session_id
+        self._pending_input: dict[str, _PendingInput] = {}  # keyed by session_id
 
     async def handle_goal(self, goal: PerceivedGoal) -> OrchestrationResult:
-        if goal.session_id in self._pending_confirmation:
-            resolved = await self.resolve_confirmation(
-                goal.session_id, goal.uid, _looks_like_acceptance(goal.raw_text)
-            )
+        pending = self._pending_input.get(goal.session_id)
+        if pending is not None:
+            if pending.mode == "confirm":
+                resolved = await self.resolve_confirmation(
+                    goal.session_id, goal.uid, _looks_like_acceptance(goal.raw_text)
+                )
+            else:
+                # Any spoken utterance while a field_request is pending is
+                # treated as the field's value, not a new goal (design doc
+                # §4a.1's last bullet) — never run through
+                # _looks_like_acceptance, which is confirm-mode-specific.
+                resolved = await self.resolve_field_input(goal.session_id, goal.uid, goal.raw_text)
             if resolved is not None:
                 return resolved
 
@@ -224,36 +243,61 @@ class TaskOrchestrator:
             return OrchestrationResult(guidance=guidance_output, guardrail=decision)
 
         fact = await self._grounding_agents[active.domain_id].ground(
-            triage_result.category, active.goal.raw_text, active.goal.uid
+            triage_result.category, active.goal.raw_text, active.goal.uid, subflow=triage_result.subflow
         )
         step = await self._planner.plan(active.goal, [fact], domain_id=active.domain_id)
 
         build_payload = getattr(domain, "build_executor_payload", None)
         if build_payload is not None:
-            step = step.model_copy(update={"payload": await build_payload(step, fact, triage_result, active.goal.uid)})
+            step = step.model_copy(update={
+                "payload": await build_payload(step, fact, triage_result, active.goal.uid, signal=signal)
+            })
 
-        permissions = await self._memory.get_standing_permissions(active.goal.uid)
-        decision = self._guardrail.evaluate(step, fact.confidence, permissions)
-
-        active.step = step
         active.fact = fact
 
-        if decision.decision == "approved":
-            return await self._execute_step(signal.session_id, active.goal.uid, active.domain_id, step)
-
-        if decision.decision == "requires_confirmation":
-            self._pending_confirmation[signal.session_id] = _PendingConfirmation(
-                step=step, uid=active.goal.uid, domain_id=active.domain_id
+        # Form-filling's build_executor_payload (Task 2) may report field
+        # resolution status in the payload — Call Agent's payload never has
+        # these keys, so this whole block is a no-op for "call".
+        unresolved_count = step.payload.get("unresolved_field_count", 0)
+        if unresolved_count > 1:
+            # More than one missing field is out of scope for the
+            # field-request pause (design doc §8's "exactly one") — denied
+            # with a spoken explanation, never a crash or a silent pause.
+            guidance_output = GuidanceOutput(
+                session_id=signal.session_id,
+                text="This form has more than one field I can't fill in on my own — I'll need you to fill it in by hand.",
+                haptic_pattern=None, earcon=None,
             )
+            decision = GuardrailDecision(step_id=step.step_id, decision="denied", reason="more than one unresolved form field")
+            return OrchestrationResult(guidance=guidance_output, guardrail=decision)
 
-        guidance_output = await self._guidance.shape(signal.session_id, active.goal.uid, step)
-        return OrchestrationResult(guidance=guidance_output, guardrail=decision)
+        missing_field = step.payload.get("missing_field")
+        if missing_field:
+            field_label = next(
+                (f["label"] for f in step.payload.get("fields", []) if f["name"] == missing_field), missing_field,
+            )
+            self._pending_input[signal.session_id] = _PendingInput(
+                step=step, uid=active.goal.uid, domain_id=active.domain_id,
+                mode="field_request", confidence=fact.confidence, field_name=missing_field,
+            )
+            guidance_output = GuidanceOutput(
+                session_id=signal.session_id,
+                text=f"I've filled in what I can, but I need one more thing — what's your {field_label.lower()}?",
+                haptic_pattern=None, earcon=None,
+            )
+            decision = GuardrailDecision(
+                step_id=step.step_id, decision="requires_field_input",
+                reason="form has one unresolved field", field_label=field_label,
+            )
+            return OrchestrationResult(guidance=guidance_output, guardrail=decision)
+
+        return await self._gate_and_respond(signal.session_id, active.goal.uid, active.domain_id, step, fact.confidence)
 
     async def resolve_confirmation(self, session_id: str, uid: str, accepted: bool) -> OrchestrationResult | None:
-        pending = self._pending_confirmation.get(session_id)
-        if pending is None:
+        pending = self._pending_input.get(session_id)
+        if pending is None or pending.mode != "confirm":
             return None
-        del self._pending_confirmation[session_id]
+        del self._pending_input[session_id]
 
         if not accepted:
             guidance_output = GuidanceOutput(
@@ -263,6 +307,48 @@ class TaskOrchestrator:
             return OrchestrationResult(guidance=guidance_output, guardrail=decision)
 
         return await self._execute_step(session_id, uid, pending.domain_id, pending.step)
+
+    async def resolve_field_input(self, session_id: str, uid: str, value: str) -> OrchestrationResult | None:
+        pending = self._pending_input.get(session_id)
+        if pending is None or pending.mode != "field_request":
+            return None
+        del self._pending_input[session_id]
+
+        fields = list(pending.step.payload.get("fields", []))
+        updated_fields = [
+            {**f, "value": value, "source": "user_provided"} if f["name"] == pending.field_name else f
+            for f in fields
+        ]
+        updated_payload = {**pending.step.payload, "fields": updated_fields, "missing_field": None}
+        step = pending.step.model_copy(update={"payload": updated_payload})
+
+        return await self._gate_and_respond(session_id, uid, pending.domain_id, step, pending.confidence)
+
+    async def _gate_and_respond(
+        self, session_id: str, uid: str, domain_id: str, step: PlanStep, confidence: float
+    ) -> OrchestrationResult:
+        """The shared tail of both handle_document_signal (once a step has
+        no missing field left to ask about) and resolve_field_input (once
+        the last missing field has just been filled in) — a form and a call
+        both go through the identical confirm-before-execute gate from here,
+        proving the two pause modes converge on one path, not two."""
+        permissions = await self._memory.get_standing_permissions(uid)
+        decision = self._guardrail.evaluate(step, confidence, permissions)
+
+        active = self._active.get(session_id)
+        if active is not None:
+            active.step = step
+
+        if decision.decision == "approved":
+            return await self._execute_step(session_id, uid, domain_id, step)
+
+        if decision.decision == "requires_confirmation":
+            self._pending_input[session_id] = _PendingInput(
+                step=step, uid=uid, domain_id=domain_id, mode="confirm", confidence=confidence
+            )
+
+        guidance_output = await self._guidance.shape(session_id, uid, step)
+        return OrchestrationResult(guidance=guidance_output, guardrail=decision)
 
     async def _execute_step(self, session_id: str, uid: str, domain_id: str, step: PlanStep) -> OrchestrationResult:
         domain = self._domains[domain_id]
