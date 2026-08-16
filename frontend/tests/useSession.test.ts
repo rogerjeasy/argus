@@ -379,4 +379,46 @@ describe("useSession playback", () => {
     expect(result.current.captionText).toBeNull();
     expect(result.current.guardrailDecision).toBeNull();
   });
+
+  it("a requires_confirmation guidance frame sets pendingConfirmation; resolveConfirmation sends the resolve message and clears it", async () => {
+    const { result } = renderHook(() => useSession("fake-token"));
+    await startAndOpen(result);
+
+    act(() => {
+      latestSocket().onmessage?.({
+        data: JSON.stringify({
+          type: "guidance", text: "Call Example Pharmacy to confirm your refill?",
+          guardrail_decision: "requires_confirmation", step_id: "step-1",
+        }),
+      });
+    });
+
+    expect(result.current.pendingConfirmation).toEqual({ stepId: "step-1", text: "Call Example Pharmacy to confirm your refill?" });
+
+    act(() => {
+      result.current.resolveConfirmation(true);
+    });
+
+    const sentTextMessages = latestSocket().sent.filter((m): m is string => typeof m === "string");
+    expect(sentTextMessages.at(-1)).toBe(JSON.stringify({ type: "resolve_confirmation", step_id: "step-1", accepted: true }));
+    expect(result.current.pendingConfirmation).toBeNull();
+  });
+
+  it("an approved guidance frame clears any still-pending confirmation", async () => {
+    const { result } = renderHook(() => useSession("fake-token"));
+    await startAndOpen(result);
+
+    act(() => {
+      latestSocket().onmessage?.({
+        data: JSON.stringify({ type: "guidance", text: "pending one", guardrail_decision: "requires_confirmation", step_id: "step-1" }),
+      });
+    });
+    act(() => {
+      latestSocket().onmessage?.({
+        data: JSON.stringify({ type: "guidance", text: "resolved elsewhere", guardrail_decision: "approved", step_id: "step-1" }),
+      });
+    });
+
+    expect(result.current.pendingConfirmation).toBeNull();
+  });
 });

@@ -9,7 +9,7 @@ import {
   type MicrophoneCapture,
 } from "./audio";
 import { describeCameraError, startCameraCapture, type CameraCapture } from "./video";
-import { parseControlFrame, parseFramingFrame, type GuidanceFrame } from "./protocol";
+import { parseControlFrame, parseFramingFrame, sendResolveConfirmation, type GuidanceFrame } from "./protocol";
 
 type SessionStatus = "idle" | "connecting" | "connected" | "error";
 
@@ -40,6 +40,7 @@ export function useSession(token: string | null) {
   const [guardrailDecision, setGuardrailDecision] = useState<GuidanceFrame["guardrailDecision"] | null>(null);
   const [framingText, setFramingText] = useState<string | null>(null);
   const [confidenceLow, setConfidenceLow] = useState(false);
+  const [pendingConfirmation, setPendingConfirmation] = useState<{ stepId: string; text: string } | null>(null);
 
   const socketRef = useRef<WebSocket | null>(null);
   const captureRef = useRef<MicrophoneCapture | null>(null);
@@ -70,6 +71,7 @@ export function useSession(token: string | null) {
     setGuardrailDecision(null);
     setFramingText(null);
     setConfidenceLow(false);
+    setPendingConfirmation(null);
   };
 
   useEffect(() => {
@@ -200,6 +202,9 @@ export function useSession(token: string | null) {
         if (frame) {
           setCaptionText(frame.text);
           setGuardrailDecision(frame.guardrailDecision);
+          setPendingConfirmation(
+            frame.guardrailDecision === "requires_confirmation" ? { stepId: frame.stepId, text: frame.text } : null
+          );
         }
         // A malformed/unrecognized frame is dropped rather than announced:
         // pushing raw protocol noise into the live region would read it
@@ -214,5 +219,17 @@ export function useSession(token: string | null) {
     setErrorMessage(null);
   }, []);
 
-  return { status, errorMessage, captionText, guardrailDecision, framingText, confidenceLow, start, stop };
+  const resolveConfirmation = useCallback((accepted: boolean) => {
+    const socket = socketRef.current;
+    const pending = pendingConfirmation;
+    if (socket && pending) {
+      sendResolveConfirmation(socket, pending.stepId, accepted);
+      setPendingConfirmation(null);
+    }
+  }, [pendingConfirmation]);
+
+  return {
+    status, errorMessage, captionText, guardrailDecision, framingText, confidenceLow,
+    pendingConfirmation, resolveConfirmation, start, stop,
+  };
 }

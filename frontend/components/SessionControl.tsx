@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { useSession } from "@/lib/session/useSession";
 import { Button } from "@/components/ui/button";
+import { ConfirmationPrompt } from "./ConfirmationPrompt";
 import { ConnectionStatus } from "./ConnectionStatus";
 import { FramingStatus } from "./FramingStatus";
 import { GuardrailStatus } from "./GuardrailStatus";
@@ -26,8 +27,10 @@ export function SessionControl() {
       });
   }, [user]);
 
-  const { status, errorMessage, captionText, guardrailDecision, framingText, confidenceLow, start, stop } =
-    useSession(token);
+  const {
+    status, errorMessage, captionText, guardrailDecision, framingText, confidenceLow,
+    pendingConfirmation, resolveConfirmation, start, stop,
+  } = useSession(token);
   const isActive = status === "connected" || status === "connecting";
 
   return (
@@ -64,6 +67,13 @@ export function SessionControl() {
       <div aria-live="assertive" className="min-h-[2rem] animate-in">
         {errorMessage ? <p>{errorMessage}</p> : null}
       </div>
+      {pendingConfirmation ? (
+        <ConfirmationPrompt
+          stepId={pendingConfirmation.stepId}
+          text={pendingConfirmation.text}
+          onResolve={resolveConfirmation}
+        />
+      ) : null}
     </div>
   );
 }
