@@ -14,14 +14,23 @@ type SessionStatus = "idle" | "connecting" | "connected" | "error";
 
 const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_BASE_URL ?? "ws://localhost:8000";
 
+/** Client-to-server binary frames carry a 1-byte type prefix — must match
+ * FRAME_TYPE_AUDIO/FRAME_TYPE_VIDEO in backend/app/ws/session.py exactly.
+ * FRAME_TYPE_VIDEO joins this constant once camera capture is wired in. */
+const FRAME_TYPE_AUDIO = 1;
+
 /**
  * Owns one voice session: the authenticated WebSocket, the microphone feeding
  * it, and playback of whatever Gemini sends back.
  *
- * Every binary frame in either direction is raw PCM audio (see
- * `lib/session/audio.ts` for the rates). Text frames carry one JSON control
- * message — the orchestrator's spoken guidance, captioned, alongside the
- * Guardrail decision that gated it (see `lib/session/protocol.ts`).
+ * Server-to-client binary frames are raw PCM audio (see `lib/session/audio.ts`
+ * for the rates). Client-to-server binary frames carry a 1-byte type prefix
+ * (FRAME_TYPE_AUDIO below) — the socket is meant to carry a second frame kind
+ * (camera frames) on top of audio, so every client-to-server frame says which
+ * kind it is; see backend/app/ws/session.py's matching FRAME_TYPE_AUDIO/
+ * FRAME_TYPE_VIDEO constants. Text frames carry one JSON control message —
+ * the orchestrator's spoken guidance, captioned, alongside the Guardrail
+ * decision that gated it (see `lib/session/protocol.ts`).
  */
 export function useSession(token: string | null) {
   const [status, setStatus] = useState<SessionStatus>("idle");
@@ -70,7 +79,10 @@ export function useSession(token: string | null) {
         // The socket can close between two capture callbacks; sending on a
         // closing socket throws.
         if (socket.readyState === WebSocket.OPEN) {
-          socket.send(chunk);
+          const prefixed = new Uint8Array(chunk.byteLength + 1);
+          prefixed[0] = FRAME_TYPE_AUDIO;
+          prefixed.set(new Uint8Array(chunk), 1);
+          socket.send(prefixed.buffer);
         }
       });
       // If the session was stopped while the permission prompt was open,

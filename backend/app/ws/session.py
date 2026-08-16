@@ -37,6 +37,13 @@ router = APIRouter()
 tracer = get_tracer(__name__)
 logger = logging.getLogger(__name__)
 
+#: Client-to-server binary frames now carry two kinds of payload on one
+#: socket — this 1-byte prefix says which. Server-to-client stays
+#: unprefixed (still audio-only in this phase). The frontend's
+#: `frontend/lib/session/useSession.ts` must use these exact values.
+FRAME_TYPE_AUDIO = 1
+FRAME_TYPE_VIDEO = 2
+
 
 def get_bridge_factory() -> Callable[[Settings], GeminiLiveBridge]:
     return lambda settings: GeminiLiveBridge(settings)
@@ -202,7 +209,18 @@ async def session_endpoint(
                         extra={"session_id": session_id},
                     )
                     first_frame_logged = True
-                await bridge.send_audio(chunk)
+                if not chunk:
+                    continue
+                frame_type, payload = chunk[0], chunk[1:]
+                if frame_type == FRAME_TYPE_AUDIO:
+                    await bridge.send_audio(payload)
+                elif frame_type == FRAME_TYPE_VIDEO:
+                    await bridge.send_video_frame(payload)
+                else:
+                    logger.warning(
+                        "ws_session_unknown_frame_type",
+                        extra={"session_id": session_id, "frame_type": frame_type},
+                    )
 
         receiver_task = asyncio.create_task(relay_from_gemini())
         sender_task = asyncio.create_task(relay_from_client())

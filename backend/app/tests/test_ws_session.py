@@ -15,6 +15,7 @@ class _StubBridge:
     def __init__(self) -> None:
         self.connected = False
         self.sent: list[bytes] = []
+        self.video_sent: list[bytes] = []
 
     def set_on_input_transcript(self, callback) -> None:
         pass
@@ -24,6 +25,9 @@ class _StubBridge:
 
     async def send_audio(self, chunk: bytes) -> None:
         self.sent.append(chunk)
+
+    async def send_video_frame(self, chunk: bytes) -> None:
+        self.video_sent.append(chunk)
 
     async def receive_audio(self) -> AsyncIterator[bytes]:
         yield b"spoken-response"
@@ -51,6 +55,9 @@ class _FailingConnectBridge:
     async def send_audio(self, chunk: bytes) -> None:  # pragma: no cover - unreachable
         raise AssertionError("send_audio should never be called")
 
+    async def send_video_frame(self, chunk: bytes) -> None:  # pragma: no cover - unreachable
+        raise AssertionError("send_video_frame should never be called")
+
     async def receive_audio(self) -> AsyncIterator[bytes]:  # pragma: no cover - unreachable
         raise AssertionError("receive_audio should never be called")
         yield b""  # noqa: unreachable, keeps this an async generator
@@ -74,6 +81,9 @@ class _DroppingBridge:
 
     async def send_audio(self, chunk: bytes) -> None:
         self.sent.append(chunk)
+
+    async def send_video_frame(self, chunk: bytes) -> None:
+        pass
 
     async def receive_audio(self) -> AsyncIterator[bytes]:
         raise RuntimeError("gemini dropped mid-session")
@@ -124,7 +134,7 @@ def test_ws_session_relays_audio_when_authenticated(monkeypatch) -> None:
 
     client = TestClient(app)
     with client.websocket_connect("/ws/session?token=valid-token") as websocket:
-        websocket.send_bytes(b"mic-audio")
+        websocket.send_bytes(bytes([1]) + b"mic-audio")
         response = websocket.receive_bytes()
         assert response == b"spoken-response"
 
@@ -231,3 +241,22 @@ def test_ws_session_sends_a_guidance_frame_after_a_finished_transcript(monkeypat
     assert payload["text"] == "Head to platform 4."
     assert payload["guardrail_decision"] == "requires_confirmation"
     assert stub_bridge.spoken == ["Head to platform 4."]
+
+
+def test_ws_session_dispatches_prefixed_audio_and_video_frames(monkeypatch) -> None:
+    fake_db = FakeFirestoreClient()
+    stub_bridge = _StubBridge()
+
+    app.dependency_overrides[get_firestore_client] = lambda: fake_db
+    app.dependency_overrides[get_bridge_factory] = lambda: (lambda settings: stub_bridge)
+    monkeypatch.setattr("app.ws.session.verify_id_token_string", _authenticated_as("user-1"))
+    _mock_build_orchestrator(monkeypatch)
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws/session?token=valid-token") as websocket:
+        websocket.send_bytes(bytes([1]) + b"mic-audio")
+        websocket.send_bytes(bytes([2]) + b"jpeg-frame")
+        websocket.receive_bytes()
+
+    assert stub_bridge.sent == [b"mic-audio"]
+    assert stub_bridge.video_sent == [b"jpeg-frame"]

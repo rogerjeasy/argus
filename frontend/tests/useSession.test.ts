@@ -245,7 +245,10 @@ describe("useSession microphone capture", () => {
     await waitFor(() => expect(startMicrophoneCapture).toHaveBeenCalledTimes(1));
   });
 
-  it("sends each captured PCM chunk over the socket", async () => {
+  it("sends each captured PCM chunk over the socket, prefixed with FRAME_TYPE_AUDIO", async () => {
+    // Must match FRAME_TYPE_AUDIO in backend/app/ws/session.py — audio and
+    // camera frames now share one socket, so every client-to-server frame
+    // says which kind it is.
     const { result } = renderHook(() => useSession("fake-token"));
     await startAndOpen(result);
     await waitFor(() => expect(capturedOnChunk.current).not.toBeNull());
@@ -255,7 +258,11 @@ describe("useSession microphone capture", () => {
       capturedOnChunk.current?.(chunk);
     });
 
-    expect(latestSocket().sent).toEqual([chunk]);
+    const sent = latestSocket().sent;
+    expect(sent).toHaveLength(1);
+    const sentBytes = new Uint8Array(sent[0] as ArrayBuffer);
+    expect(sentBytes[0]).toBe(1); // FRAME_TYPE_AUDIO
+    expect(sentBytes.slice(1)).toEqual(new Uint8Array(chunk));
   });
 
   it("drops captured chunks once the socket is no longer open", async () => {
