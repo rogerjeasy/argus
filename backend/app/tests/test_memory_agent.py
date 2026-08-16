@@ -41,3 +41,58 @@ def test_standing_permission_provider_defaults_to_none() -> None:
     permission = StandingPermission(category="pharmacy_refill_under_20", threshold=0.5)
 
     assert permission.provider is None
+
+
+@pytest.mark.asyncio
+async def test_update_profile_then_get_profile_round_trips_without_kms(monkeypatch) -> None:
+    from app.agents.memory import MemoryAgent, PersonalAdminProfile, ProviderContact
+    from app.tests.doubles.fake_firestore import FakeFirestoreClient
+
+    monkeypatch.setattr("app.agents.memory.get_settings", lambda: type("S", (), {"kms_key_name": ""})())
+    db = FakeFirestoreClient()
+    agent = MemoryAgent(db, kms=None)
+    profile = PersonalAdminProfile(
+        known_providers=[ProviderContact(name="Example Pharmacy", phone_number="+15551234567", category="pharmacy_refill_under_20")],
+        standing_payment_threshold_cents=2000,
+        insurance_member_id="ABC123",
+    )
+
+    await agent.update_profile("user-1", profile)
+    loaded = await agent.get_profile("user-1")
+
+    assert loaded == profile
+
+
+@pytest.mark.asyncio
+async def test_get_profile_returns_empty_profile_when_none_stored() -> None:
+    from app.agents.memory import MemoryAgent, PersonalAdminProfile
+    from app.tests.doubles.fake_firestore import FakeFirestoreClient
+
+    agent = MemoryAgent(FakeFirestoreClient(), kms=None)
+
+    profile = await agent.get_profile("user-with-no-profile")
+
+    assert profile == PersonalAdminProfile()
+
+
+@pytest.mark.asyncio
+async def test_update_profile_encrypts_sensitive_fields_through_kms(monkeypatch) -> None:
+    from app.agents.memory import MemoryAgent, PersonalAdminProfile
+    from app.tests.doubles.fake_firestore import FakeFirestoreClient
+    from app.tests.doubles.fake_kms import FakeKmsClient
+
+    monkeypatch.setattr("app.agents.memory.get_settings", lambda: type("S", (), {"kms_key_name": "projects/p/locations/l/keyRings/r/cryptoKeys/k"})())
+    db = FakeFirestoreClient()
+    kms = FakeKmsClient()
+    agent = MemoryAgent(db, kms=kms)
+    profile = PersonalAdminProfile(insurance_member_id="ABC123", date_of_birth="1990-01-01")
+
+    await agent.update_profile("user-1", profile)
+
+    assert len(kms.encrypt_calls) == 2  # insurance_member_id, date_of_birth
+    stored = db.collection("argus_users").document("user-1").collection("personal_admin").document("profile").get().to_dict()
+    assert stored["insurance_member_id"] != "ABC123"  # stored ciphertext, not plaintext
+
+    loaded = await agent.get_profile("user-1")
+    assert loaded.insurance_member_id == "ABC123"  # decrypted back on read
+    assert len(kms.decrypt_calls) == 2

@@ -999,6 +999,29 @@ proto-plus = ">=1.26.1,<2.0.0"
 protobuf = ">=6.33.5,<8.0.0"
 
 [[package]]
+name = "google-cloud-kms"
+version = "3.16.0"
+description = "Google Cloud Kms API client library"
+optional = false
+python-versions = ">=3.10"
+groups = ["main"]
+files = [
+    {file = "google_cloud_kms-3.16.0-py3-none-any.whl", hash = "sha256:ad3c102961ba58179f7261814d9cd28dded93603bd33c8224b4b072897bbe81e"},
+    {file = "google_cloud_kms-3.16.0.tar.gz", hash = "sha256:c89c66ccffc1358f973801ed1b45bd92b35ddbbc2545db9032af6d4643b20c7"},
+]
+
+[package.dependencies]
+google-api-core = {version = ">=2.24.2,<3.0.0", extras = ["grpc"]}
+google-auth = ">=2.14.1,<2.24.0 || >2.24.0,<2.25.0 || >2.25.0,<3.0.0"
+grpc-google-iam-v1 = ">=0.14.2,<1.0.0"
+grpcio = [
+    {version = ">=1.75.1,<2.0.0", markers = "python_version >= \"3.14\""},
+    {version = ">=1.59.0,<2.0.0"},
+]
+proto-plus = ">=1.26.1,<2.0.0"
+protobuf = ">=6.33.5,<8.0.0"
+
+[[package]]
 name = "google-cloud-pubsub"
 version = "2.39.1"
 description = "Google Cloud Pub/Sub API client library"
@@ -3279,4 +3302,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.12"
-content-hash = "78e3bfdbbd975677b345b53c42889770434065485ba8861a3c90162d230adfc0"
+content-hash = "fcdad3ef843603e3cdbb961f48d518e125898136e29cac6c1d955229370f23f4"

@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     gtfs_mbta_static_feed_url: str = "https://cdn.mbta.com/MBTA_GTFS.zip"
     gtfs_mbta_realtime_feed_url: str = "https://cdn.mbta.com/realtime/TripUpdates.pb"
     gtfs_realtime_cache_ttl_seconds: float = 5.0
+    #: Full resource name: projects/.../locations/.../keyRings/.../cryptoKeys/...
+    #: Empty means "no KMS key provisioned yet" — MemoryAgent then stores
+    #: personal_admin profile fields as plaintext rather than failing, the
+    #: same graceful-degradation posture every other optional integration
+    #: in this project already takes.
+    kms_key_name: str = ""
 
 
 @lru_cache
