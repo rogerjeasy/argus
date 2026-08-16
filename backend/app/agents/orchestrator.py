@@ -124,7 +124,7 @@ class TaskOrchestrator:
             return OrchestrationResult(guidance=escalation_output, guardrail=denied)
 
         replanned_fact = await self._replanning.replan(
-            key=active.grounding_key, attempt=active.replan_attempts, raw_goal_text=active.goal.raw_text
+            grounding=grounding, key=active.grounding_key, attempt=active.replan_attempts, raw_goal_text=active.goal.raw_text
         )
         new_step = await self._planner.plan(active.goal, [replanned_fact], domain_id=active.domain_id)
         permissions = await self._memory.get_standing_permissions(uid)

@@ -29,7 +29,7 @@ from app.core.clients import get_firestore_client
 from app.core.config import Settings, get_settings
 from app.core.pubsub import get_publisher_client
 from app.core.telemetry import get_tracer
-from app.domains.stub import FakeGroundingSource, StubDomain
+from app.domains.transit.registry import get_transit_domains
 from app.models.agent_events import PerceivedGoal
 from app.ws.gemini_bridge import GeminiLiveBridge
 
@@ -56,11 +56,14 @@ def _reasoning_model(settings: Settings) -> Gemini:
     )
 
 
-def build_orchestrator(db: firestore.Client) -> TaskOrchestrator:
+async def build_orchestrator(db: firestore.Client) -> TaskOrchestrator:
     settings = get_settings()
-    # Phase 1's only registered domain. A later phase adds a second plugin
-    # here without touching the orchestrator or any of the nine agents.
-    stub = StubDomain(FakeGroundingSource())
+    # Phase 2: the real TransitDomain(s) replace Phase 1's StubDomain in
+    # live wiring (StubDomain's class and its own tests still exist, just
+    # unused here). get_transit_domains() is lazy — see
+    # app/domains/transit/registry.py — so this doesn't refetch/reparse the
+    # static feed on every WebSocket session.
+    domains = await get_transit_domains(settings)
     router_runner = LlmAgentRunner(
         agent=LlmAgent(
             name="domain_router", model=_reasoning_model(settings), instruction="Classify the goal into one domain id."
@@ -77,15 +80,15 @@ def build_orchestrator(db: firestore.Client) -> TaskOrchestrator:
         )
     )
 
-    grounding = GroundingAgent(stub)
+    grounding_agents = {d.domain_id: GroundingAgent(d) for d in domains}
     memory = MemoryAgent(db)
     return TaskOrchestrator(
         perception=PerceptionAgent(),
-        router=DomainRouterAgent(router_runner, domains=[stub]),
-        grounding_agents={"stub": grounding},
+        router=DomainRouterAgent(router_runner, domains=domains),
+        grounding_agents=grounding_agents,
         planner=PlannerAgent(planner_runner),
         guardrail=GuardrailAgent(),
-        replanning=ReplanningAgent(grounding),
+        replanning=ReplanningAgent(),
         guidance=GuidanceAgent(guidance_runner),
         memory=memory,
         escalation=EscalationAgent(db, get_publisher_client(), LoggingNotificationSender()),
@@ -147,7 +150,7 @@ async def session_endpoint(
         )
 
         bridge = bridge_factory(settings)
-        orchestrator = build_orchestrator(db)
+        orchestrator = await build_orchestrator(db)
 
         async def _handle_transcript(text: str) -> None:
             goal = PerceivedGoal(session_id=session_id, uid=user.uid, raw_text=text)

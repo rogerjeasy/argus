@@ -87,6 +87,22 @@ def _authenticated_as(uid: str):
     return lambda token: AuthenticatedUser(uid=uid, email=None)
 
 
+def _mock_build_orchestrator(monkeypatch, orchestrator=None) -> None:
+    """build_orchestrator is now async and, unmocked, calls
+    get_transit_domains() — a real network fetch (MBTA's feed URL has a
+    non-empty default, so this isn't conditional on Settings). Every test
+    below that reaches this line, not just the ones that care about
+    orchestrator behavior, must mock it out or it would hit the real
+    network — a Global Constraints violation and a source of CI flakiness.
+    """
+    fake = orchestrator if orchestrator is not None else _FakeOrchestrator()
+
+    async def _fake_build_orchestrator(db):
+        return fake
+
+    monkeypatch.setattr("app.ws.session.build_orchestrator", _fake_build_orchestrator)
+
+
 def test_ws_session_rejects_missing_token() -> None:
     client = TestClient(app)
     # The server closes the socket (code 1008) without ever calling accept(),
@@ -104,6 +120,7 @@ def test_ws_session_relays_audio_when_authenticated(monkeypatch) -> None:
     app.dependency_overrides[get_firestore_client] = lambda: fake_db
     app.dependency_overrides[get_bridge_factory] = lambda: (lambda settings: stub_bridge)
     monkeypatch.setattr("app.ws.session.verify_id_token_string", _authenticated_as("user-1"))
+    _mock_build_orchestrator(monkeypatch)
 
     client = TestClient(app)
     with client.websocket_connect("/ws/session?token=valid-token") as websocket:
@@ -125,6 +142,7 @@ def test_ws_session_marks_error_when_gemini_connect_fails(monkeypatch) -> None:
     app.dependency_overrides[get_firestore_client] = lambda: fake_db
     app.dependency_overrides[get_bridge_factory] = lambda: (lambda settings: failing_bridge)
     monkeypatch.setattr("app.ws.session.verify_id_token_string", _authenticated_as("user-2"))
+    _mock_build_orchestrator(monkeypatch)
 
     client = TestClient(app)
     with client.websocket_connect("/ws/session?token=valid-token") as websocket:
@@ -145,6 +163,7 @@ def test_ws_session_closes_when_gemini_drops_mid_session(monkeypatch) -> None:
     app.dependency_overrides[get_firestore_client] = lambda: fake_db
     app.dependency_overrides[get_bridge_factory] = lambda: (lambda settings: dropping_bridge)
     monkeypatch.setattr("app.ws.session.verify_id_token_string", _authenticated_as("user-3"))
+    _mock_build_orchestrator(monkeypatch)
 
     client = TestClient(app)
     with client.websocket_connect("/ws/session?token=valid-token") as websocket:
@@ -192,7 +211,7 @@ def test_ws_session_sends_a_guidance_frame_after_a_finished_transcript(monkeypat
     app.dependency_overrides[get_firestore_client] = lambda: fake_db
     app.dependency_overrides[get_bridge_factory] = lambda: (lambda settings: stub_bridge)
     monkeypatch.setattr("app.ws.session.verify_id_token_string", _authenticated_as("user-1"))
-    monkeypatch.setattr("app.ws.session.build_orchestrator", lambda db: _FakeOrchestrator())
+    _mock_build_orchestrator(monkeypatch, _FakeOrchestrator())
 
     client = TestClient(app)
     with client.websocket_connect("/ws/session?token=valid-token") as websocket:
