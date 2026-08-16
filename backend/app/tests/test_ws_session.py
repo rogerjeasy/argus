@@ -20,6 +20,9 @@ class _StubBridge:
     def set_on_input_transcript(self, callback) -> None:
         pass
 
+    def set_on_scene_observation(self, callback) -> None:
+        pass
+
     async def connect(self) -> None:
         self.connected = True
 
@@ -49,6 +52,9 @@ class _FailingConnectBridge:
     def set_on_input_transcript(self, callback) -> None:
         pass
 
+    def set_on_scene_observation(self, callback) -> None:
+        pass
+
     async def connect(self) -> None:
         raise RuntimeError("gemini connect failed")
 
@@ -74,6 +80,9 @@ class _DroppingBridge:
         self.closed = False
 
     def set_on_input_transcript(self, callback) -> None:
+        pass
+
+    def set_on_scene_observation(self, callback) -> None:
         pass
 
     async def connect(self) -> None:
@@ -191,10 +200,14 @@ class _StubBridgeWithTranscript(_StubBridge):
     def __init__(self) -> None:
         super().__init__()
         self.on_input_transcript = None
+        self.on_scene_observation = None
         self.spoken: list[str] = []
 
     def set_on_input_transcript(self, callback) -> None:
         self.on_input_transcript = callback
+
+    def set_on_scene_observation(self, callback) -> None:
+        self.on_scene_observation = callback
 
     async def speak(self, text: str) -> None:
         self.spoken.append(text)
@@ -260,3 +273,43 @@ def test_ws_session_dispatches_prefixed_audio_and_video_frames(monkeypatch) -> N
 
     assert stub_bridge.sent == [b"mic-audio"]
     assert stub_bridge.video_sent == [b"jpeg-frame"]
+
+
+def test_ws_session_speaks_framing_guidance_and_dedups_repeated_positions(monkeypatch) -> None:
+    import json
+
+    fake_db = FakeFirestoreClient()
+    stub_bridge = _StubBridgeWithTranscript()
+
+    app.dependency_overrides[get_firestore_client] = lambda: fake_db
+    app.dependency_overrides[get_bridge_factory] = lambda: (lambda settings: stub_bridge)
+    monkeypatch.setattr("app.ws.session.verify_id_token_string", _authenticated_as("user-1"))
+    _mock_build_orchestrator(monkeypatch, _FakeOrchestrator())
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws/session?token=valid-token") as websocket:
+        websocket.receive_bytes()  # drain the stub's one audio chunk
+
+        import asyncio
+
+        # First observation: "right" — must speak and send a framing frame.
+        asyncio.run(stub_bridge.on_scene_observation(
+            {"text_detected": True, "position": "right", "signage_text": "", "confidence": 0.9}
+        ))
+        frame = json.loads(websocket.receive_text())
+        assert frame["type"] == "framing"
+        assert frame["text"] == "Move slightly right."
+
+        # Second observation: same position again — must NOT speak/send again.
+        asyncio.run(stub_bridge.on_scene_observation(
+            {"text_detected": True, "position": "right", "signage_text": "", "confidence": 0.9}
+        ))
+
+        # Third observation: position changed to "center" — must speak again.
+        asyncio.run(stub_bridge.on_scene_observation(
+            {"text_detected": True, "position": "center", "signage_text": "", "confidence": 0.9}
+        ))
+        frame2 = json.loads(websocket.receive_text())
+        assert frame2["text"] == "Hold steady, almost there."
+
+    assert stub_bridge.spoken == ["Move slightly right.", "Hold steady, almost there."]

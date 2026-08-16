@@ -174,6 +174,52 @@ async def session_endpoint(
 
         bridge.set_on_input_transcript(_handle_transcript)
 
+        perception = PerceptionAgent()
+        # shape_framing() is deterministic and never touches self._runner, so
+        # passing None directly is safe here — unlike GuidanceAgent's shape(),
+        # which absolutely does need a working LlmAgentRunner. Constructing a
+        # real LlmAgentRunner(agent=None) instead would fail: ADK's Runner
+        # rejects a None agent at construction time, before shape_framing()
+        # ever gets the chance to not use it.
+        guidance_for_framing = GuidanceAgent(None)
+        last_framing_position: str | None = None
+
+        async def _handle_scene_observation(args: dict) -> None:
+            nonlocal last_framing_position
+            framing, signal = perception.handle_scene_observation(
+                session_id=session_id,
+                text_detected=bool(args.get("text_detected", False)),
+                position=str(args.get("position", "none")),
+                signage_text=str(args.get("signage_text", "")),
+                confidence=float(args.get("confidence", 0.0)),
+            )
+
+            if framing.position != last_framing_position:
+                last_framing_position = framing.position
+                framing_guidance = guidance_for_framing.shape_framing(session_id, framing)
+                await bridge.speak(framing_guidance.text)
+                if websocket.application_state == WebSocketState.CONNECTED:
+                    await websocket.send_text(json.dumps({
+                        "type": "framing",
+                        "text": framing_guidance.text,
+                        "confidence_low": not framing.text_detected,
+                    }))
+
+            if signal is not None:
+                result = await orchestrator.handle_scene_signal(signal)
+                if result is not None:
+                    await bridge.speak(result.guidance.text)
+                    if websocket.application_state == WebSocketState.CONNECTED:
+                        await websocket.send_text(json.dumps({
+                            "type": "guidance",
+                            "text": result.guidance.text,
+                            "haptic_pattern": result.guidance.haptic_pattern,
+                            "earcon": result.guidance.earcon,
+                            "guardrail_decision": result.guardrail.decision,
+                        }))
+
+        bridge.set_on_scene_observation(_handle_scene_observation)
+
         try:
             await bridge.connect()
         except Exception:
