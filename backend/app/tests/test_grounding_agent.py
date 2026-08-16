@@ -115,3 +115,29 @@ def test_scene_signal_with_no_digit_never_suggests_divergence() -> None:
     signal = SceneSignal(session_id="s1", kind="signage_text", text="Drink Coffee!", confidence=0.95)
 
     assert agent.scene_signal_suggests_divergence(expected=expected, signal=signal) is False
+
+
+@pytest.mark.asyncio
+async def test_ground_forwards_uid_to_the_domain() -> None:
+    class _RecordingDomain:
+        domain_id = "recording"
+        executors: dict = {}
+
+        def __init__(self) -> None:
+            self.received_uid: str | None = None
+
+        def matches(self, goal_text: str) -> bool:
+            return True
+
+        async def ground(self, request):
+            self.received_uid = request.uid
+            from datetime import datetime, timezone
+            from app.models.agent_events import GroundedFact
+            return GroundedFact(key=request.key, value="x", source="test", confidence=1.0, as_of=datetime.now(timezone.utc))
+
+    domain = _RecordingDomain()
+    agent = GroundingAgent(domain)
+
+    await agent.ground("profile", uid="user-42")
+
+    assert domain.received_uid == "user-42"

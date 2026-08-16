@@ -13,6 +13,11 @@ class GroundingRequest(BaseModel):
     #: which stop/trip the user meant. Optional and defaulted so every
     #: Phase 1 call site (`GroundingRequest(key=key)`) is unaffected.
     raw_goal_text: str = ""
+    #: Which user is asking — Phase 1's TransitDomain/StubDomain answer the
+    #: same for everyone, so they ignore this. PersonalAdminDomain.ground()
+    #: reads that specific user's own stored profile, so it needs uid.
+    #: Optional and defaulted so every Phase 1 call site is unaffected.
+    uid: str = ""
     #: Clock override for deterministic tests only — production code leaves
     #: this unset and GtfsStaticIndex.resolve_stop() falls back to wall time.
     now: _time | None = None

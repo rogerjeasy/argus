@@ -85,7 +85,7 @@ class TaskOrchestrator:
             # Phase 1's stub domain only ever grounds one key; a real domain
             # (later phase) would derive this from the goal text.
             grounding_key = "platform"
-            fact = await grounding.ground(grounding_key, goal.raw_text)
+            fact = await grounding.ground(grounding_key, goal.raw_text, goal.uid)
 
             step = await self._planner.plan(goal, [fact], domain_id=domain_id)
             permissions = await self._memory.get_standing_permissions(goal.uid)
@@ -106,7 +106,7 @@ class TaskOrchestrator:
             return None
 
         grounding = self._grounding_agents[active.domain_id]
-        new_fact = await grounding.ground(active.grounding_key, active.goal.raw_text)
+        new_fact = await grounding.ground(active.grounding_key, active.goal.raw_text, active.goal.uid)
         divergence = grounding.check_divergence(plan_step_id=active.step.step_id, expected=active.fact, new_fact=new_fact)
         if divergence is None:
             return None
