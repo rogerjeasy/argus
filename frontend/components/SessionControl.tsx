@@ -5,6 +5,7 @@ import { useAuth } from "@/lib/auth/AuthProvider";
 import { useSession } from "@/lib/session/useSession";
 import { Button } from "@/components/ui/button";
 import { ConnectionStatus } from "./ConnectionStatus";
+import { GuardrailStatus } from "./GuardrailStatus";
 
 export function SessionControl() {
   const { user } = useAuth();
@@ -24,7 +25,7 @@ export function SessionControl() {
       });
   }, [user]);
 
-  const { status, errorMessage, start, stop } = useSession(token);
+  const { status, errorMessage, captionText, guardrailDecision, start, stop } = useSession(token);
   const isActive = status === "connected" || status === "connecting";
 
   return (
@@ -38,9 +39,16 @@ export function SessionControl() {
         {isActive ? "Stop" : "Start"}
       </Button>
       <ConnectionStatus status={status} />
-      {/* Argus's reply is spoken, not captioned — Phase 0's protocol carries
-          audio only. This region exists for what audio cannot convey: why a
-          session failed, in plain language, announced without stealing focus.
+      {guardrailDecision ? <GuardrailStatus decision={guardrailDecision} /> : null}
+      {/* Captions: what Argus actually said, shown alongside the audio —
+          never color/audio alone as the only channel for a guardrail-relevant
+          reply. `polite` because it updates routinely, not something the
+          user must act on. */}
+      <div aria-live="polite" className="min-h-[2rem]">
+        {captionText ? <p>{captionText}</p> : null}
+      </div>
+      {/* This region exists for what audio cannot convey: why a session
+          failed, in plain language, announced without stealing focus.
           `assertive` because it only ever holds something the user must act
           on. */}
       <div aria-live="assertive" className="min-h-[2rem] animate-in">

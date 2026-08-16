@@ -8,6 +8,7 @@ import {
   startMicrophoneCapture,
   type MicrophoneCapture,
 } from "./audio";
+import { parseControlFrame, type GuidanceFrame } from "./protocol";
 
 type SessionStatus = "idle" | "connecting" | "connected" | "error";
 
@@ -17,14 +18,16 @@ const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_BASE_URL ?? "ws://localhost:8000"
  * Owns one voice session: the authenticated WebSocket, the microphone feeding
  * it, and playback of whatever Gemini sends back.
  *
- * Phase 0's wire protocol is deliberately tiny — every binary frame in either
- * direction is raw PCM audio (see `lib/session/audio.ts` for the rates). There
- * is no text/caption frame type yet, so nothing here tries to render message
- * payloads as text.
+ * Every binary frame in either direction is raw PCM audio (see
+ * `lib/session/audio.ts` for the rates). Text frames carry one JSON control
+ * message — the orchestrator's spoken guidance, captioned, alongside the
+ * Guardrail decision that gated it (see `lib/session/protocol.ts`).
  */
 export function useSession(token: string | null) {
   const [status, setStatus] = useState<SessionStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [captionText, setCaptionText] = useState<string | null>(null);
+  const [guardrailDecision, setGuardrailDecision] = useState<GuidanceFrame["guardrailDecision"] | null>(null);
 
   const socketRef = useRef<WebSocket | null>(null);
   const captureRef = useRef<MicrophoneCapture | null>(null);
@@ -45,6 +48,11 @@ export function useSession(token: string | null) {
     const socket = socketRef.current;
     socketRef.current = null;
     socket?.close();
+    // A stale caption/guardrail state from the ending session must not
+    // bleed into the next one — this runs both on stop() and at the top of
+    // start() (clearing out a previous unclean disconnect).
+    setCaptionText(null);
+    setGuardrailDecision(null);
   };
 
   useEffect(() => {
@@ -135,10 +143,18 @@ export function useSession(token: string | null) {
     socket.onmessage = (event: MessageEvent) => {
       if (event.data instanceof ArrayBuffer) {
         playerRef.current?.play(event.data);
+        return;
       }
-      // Anything non-binary is unexpected in Phase 0 and is dropped rather
-      // than announced: pushing an unknown payload into the live region would
-      // read raw protocol noise to a screen reader.
+      if (typeof event.data === "string") {
+        const frame = parseControlFrame(event.data);
+        if (frame) {
+          setCaptionText(frame.text);
+          setGuardrailDecision(frame.guardrailDecision);
+        }
+        // A malformed/unrecognized frame is dropped rather than announced:
+        // pushing raw protocol noise into the live region would read it
+        // aloud to a screen reader.
+      }
     };
   }, [token, beginCapture]);
 
@@ -148,5 +164,5 @@ export function useSession(token: string | null) {
     setErrorMessage(null);
   }, []);
 
-  return { status, errorMessage, start, stop };
+  return { status, errorMessage, captionText, guardrailDecision, start, stop };
 }

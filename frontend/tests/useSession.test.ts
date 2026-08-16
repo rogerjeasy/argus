@@ -339,4 +339,36 @@ describe("useSession playback", () => {
     expect(play).not.toHaveBeenCalled();
     expect(result.current.status).toBe("connected");
   });
+
+  it("surfaces caption text and a guardrail decision from a guidance frame", async () => {
+    const { result } = renderHook(() => useSession("fake-token"));
+    await startAndOpen(result);
+
+    act(() => {
+      latestSocket().onmessage?.({
+        data: JSON.stringify({
+          type: "guidance",
+          text: "Head to platform 4.",
+          haptic_pattern: "pattern-forward",
+          earcon: "earcon-plan-updated",
+          guardrail_decision: "requires_confirmation",
+        }),
+      });
+    });
+
+    expect(result.current.captionText).toBe("Head to platform 4.");
+    expect(result.current.guardrailDecision).toBe("requires_confirmation");
+  });
+
+  it("drops a malformed control frame without touching caption/guardrail state", async () => {
+    const { result } = renderHook(() => useSession("fake-token"));
+    await startAndOpen(result);
+
+    act(() => {
+      latestSocket().onmessage?.({ data: "unexpected text frame" });
+    });
+
+    expect(result.current.captionText).toBeNull();
+    expect(result.current.guardrailDecision).toBeNull();
+  });
 });
