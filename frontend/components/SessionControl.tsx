@@ -6,6 +6,7 @@ import { useSession } from "@/lib/session/useSession";
 import { Button } from "@/components/ui/button";
 import { ConfirmationPrompt } from "./ConfirmationPrompt";
 import { ConnectionStatus } from "./ConnectionStatus";
+import { FormFieldPrompt } from "./FormFieldPrompt";
 import { FramingStatus } from "./FramingStatus";
 import { GuardrailStatus } from "./GuardrailStatus";
 
@@ -29,7 +30,7 @@ export function SessionControl() {
 
   const {
     status, errorMessage, captionText, guardrailDecision, framingText, confidenceLow,
-    pendingConfirmation, resolveConfirmation, start, stop,
+    pendingConfirmation, resolveConfirmation, pendingFieldRequest, resolveFieldInput, start, stop,
   } = useSession(token);
   const isActive = status === "connected" || status === "connecting";
 
@@ -72,6 +73,14 @@ export function SessionControl() {
           stepId={pendingConfirmation.stepId}
           text={pendingConfirmation.text}
           onResolve={resolveConfirmation}
+        />
+      ) : null}
+      {pendingFieldRequest ? (
+        <FormFieldPrompt
+          stepId={pendingFieldRequest.stepId}
+          text={pendingFieldRequest.text}
+          label={pendingFieldRequest.label}
+          onResolve={resolveFieldInput}
         />
       ) : null}
     </div>
