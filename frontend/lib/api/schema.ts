@@ -56,6 +56,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/webhooks/twilio/call-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Call Status Webhook */
+        post: operations["call_status_webhook_webhooks_twilio_call_status_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/retry-call/{step_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retry Call
+         * @description Cloud Tasks' own HTTP target for a retried call. The request body is
+         *     exactly what enqueue_call_retry() serialized (core/cloud_tasks.py) — the
+         *     original call_goal — so this replays CallExecutor.execute() rather than
+         *     needing to reconstruct anything from Firestore.
+         */
+        post: operations["retry_call_internal_retry_call__step_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -232,6 +272,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserProfile"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    call_status_webhook_webhooks_twilio_call_status_post: {
+        parameters: {
+            query: {
+                step_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_call_internal_retry_call__step_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                step_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */
