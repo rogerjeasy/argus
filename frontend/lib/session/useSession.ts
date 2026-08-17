@@ -9,7 +9,9 @@ import {
   type MicrophoneCapture,
 } from "./audio";
 import { describeCameraError, startCameraCapture, type CameraCapture } from "./video";
-import { parseControlFrame, parseFramingFrame, sendResolveConfirmation, type GuidanceFrame } from "./protocol";
+import {
+  parseControlFrame, parseFramingFrame, sendResolveConfirmation, sendResolveFieldInput, type GuidanceFrame,
+} from "./protocol";
 
 type SessionStatus = "idle" | "connecting" | "connected" | "error";
 
@@ -41,6 +43,7 @@ export function useSession(token: string | null) {
   const [framingText, setFramingText] = useState<string | null>(null);
   const [confidenceLow, setConfidenceLow] = useState(false);
   const [pendingConfirmation, setPendingConfirmation] = useState<{ stepId: string; text: string } | null>(null);
+  const [pendingFieldRequest, setPendingFieldRequest] = useState<{ stepId: string; text: string; label: string } | null>(null);
 
   const socketRef = useRef<WebSocket | null>(null);
   const captureRef = useRef<MicrophoneCapture | null>(null);
@@ -72,6 +75,7 @@ export function useSession(token: string | null) {
     setFramingText(null);
     setConfidenceLow(false);
     setPendingConfirmation(null);
+    setPendingFieldRequest(null);
   };
 
   useEffect(() => {
@@ -205,6 +209,11 @@ export function useSession(token: string | null) {
           setPendingConfirmation(
             frame.guardrailDecision === "requires_confirmation" ? { stepId: frame.stepId, text: frame.text } : null
           );
+          setPendingFieldRequest(
+            frame.guardrailDecision === "requires_field_input"
+              ? { stepId: frame.stepId, text: frame.text, label: frame.fieldLabel ?? "value" }
+              : null
+          );
         }
         // A malformed/unrecognized frame is dropped rather than announced:
         // pushing raw protocol noise into the live region would read it
@@ -228,8 +237,17 @@ export function useSession(token: string | null) {
     }
   }, [pendingConfirmation]);
 
+  const resolveFieldInput = useCallback((value: string) => {
+    const socket = socketRef.current;
+    const pending = pendingFieldRequest;
+    if (socket && pending) {
+      sendResolveFieldInput(socket, pending.stepId, value);
+      setPendingFieldRequest(null);
+    }
+  }, [pendingFieldRequest]);
+
   return {
     status, errorMessage, captionText, guardrailDecision, framingText, confidenceLow,
-    pendingConfirmation, resolveConfirmation, start, stop,
+    pendingConfirmation, resolveConfirmation, pendingFieldRequest, resolveFieldInput, start, stop,
   };
 }
