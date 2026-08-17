@@ -9,6 +9,7 @@ module "apis" {
     "aiplatform.googleapis.com",
     "cloudtrace.googleapis.com",
     "artifactregistry.googleapis.com",
+    "storage.googleapis.com",
   ]
 }
 
@@ -40,6 +41,15 @@ module "firestore" {
   project_id  = var.project_id
   location_id = var.region
   depends_on  = [module.apis]
+}
+
+module "personal_admin_forms_bucket" {
+  source     = "../../modules/storage_bucket"
+  project_id = var.project_id
+  location   = var.region
+  name       = "${var.project_id}-personal-admin-forms"
+  writers    = ["serviceAccount:${module.backend_service_account.email}"]
+  depends_on = [module.apis, module.backend_service_account]
 }
 
 module "events_topic" {
@@ -76,7 +86,8 @@ module "backend_service" {
     # list-typed env vars as JSON, so `["https://app.example.com"]` is what
     # Settings.cors_allow_origins needs to see. Without this the deployed
     # backend keeps its localhost-only default and blocks the real frontend.
-    CORS_ALLOW_ORIGINS = jsonencode(var.cors_allow_origins)
+    CORS_ALLOW_ORIGINS            = jsonencode(var.cors_allow_origins)
+    PERSONAL_ADMIN_STORAGE_BUCKET = module.personal_admin_forms_bucket.name
   }
   depends_on = [module.artifact_registry]
 }

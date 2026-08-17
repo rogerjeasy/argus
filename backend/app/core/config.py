@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     #: for local dev against a real Twilio account). Empty is fine until
     #: Task 9+ actually places a real call.
     public_base_url: str = ""
+    #: Empty by default (Phase 3b, matches the twilio_* fields' pattern) —
+    #: nothing in the build is blocked on a real bucket existing yet.
+    #: build_orchestrator only registers FormExecutor when this is set.
+    personal_admin_storage_bucket: str = ""
 
 
 @lru_cache
