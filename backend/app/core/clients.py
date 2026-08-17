@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from google.cloud import firestore, kms
+from google.cloud import firestore, kms, storage
 
 from app.core.config import get_settings
 
@@ -14,3 +14,9 @@ def get_firestore_client() -> firestore.Client:
 @lru_cache
 def get_kms_client() -> kms.KeyManagementServiceClient:
     return kms.KeyManagementServiceClient()
+
+
+@lru_cache
+def get_storage_client() -> storage.Client:
+    settings = get_settings()
+    return storage.Client(project=settings.gcp_project_id)

@@ -25,13 +25,15 @@ from app.agents.planner import PlannerAgent
 from app.agents.replanning import ReplanningAgent
 from app.agents.router import DomainRouterAgent
 from app.core.auth import AuthenticatedUser, InvalidTokenError, verify_id_token_string
-from app.core.clients import get_firestore_client
+from app.core.clients import get_firestore_client, get_storage_client
 from app.core.config import Settings, get_settings
 from app.core.pubsub import get_publisher_client
 from app.core.telemetry import get_tracer
 from app.domains.personal_admin.call_executor import CallExecutor
 from app.domains.personal_admin.domain import PersonalAdminDomain
+from app.domains.personal_admin.form_executor import FormExecutor
 from app.domains.transit.registry import get_transit_domains
+from app.integrations.storage_client import RealStorageClient
 from app.integrations.twilio_client import RealTwilioClient
 from app.models.agent_events import PerceivedGoal
 from app.ws.gemini_bridge import GeminiLiveBridge
@@ -106,6 +108,9 @@ async def build_orchestrator(db: firestore.Client) -> TaskOrchestrator:
             twilio, get_call_session_registry(),
             from_number=settings.twilio_from_number, public_base_url=settings.public_base_url,
         )
+    if settings.personal_admin_storage_bucket:
+        storage = RealStorageClient(settings.personal_admin_storage_bucket, sdk_client=get_storage_client())
+        personal_admin.executors["form"] = FormExecutor(storage)
 
     domains = [*transit_domains, personal_admin]
     grounding_agents = {d.domain_id: GroundingAgent(d) for d in domains}
