@@ -17,4 +17,9 @@ describe("GuardrailStatus", () => {
     render(<GuardrailStatus decision="denied" />);
     expect(screen.getByText("Denied")).toBeInTheDocument();
   });
+
+  it("renders requires_field_input with a warning tone", () => {
+    render(<GuardrailStatus decision="requires_field_input" />);
+    expect(screen.getByText("Needs one more detail")).toBeInTheDocument();
+  });
 });

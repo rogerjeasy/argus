@@ -20,6 +20,7 @@ describe("parseControlFrame", () => {
       earcon: "earcon-plan-updated",
       guardrailDecision: "requires_confirmation",
       stepId: "step-1",
+      fieldLabel: null,
     });
   });
 
@@ -32,6 +33,19 @@ describe("parseControlFrame", () => {
 
   it("returns null for a well-formed but unrecognized frame type", () => {
     expect(parseControlFrame(JSON.stringify({ type: "unknown" }))).toBeNull();
+  });
+
+  it("captures field_label for a requires_field_input frame", () => {
+    const frame = parseControlFrame(
+      JSON.stringify({
+        type: "guidance",
+        text: "What's your policy number?",
+        guardrail_decision: "requires_field_input",
+        step_id: "step-1",
+        field_label: "Policy number",
+      })
+    );
+    expect(frame?.fieldLabel).toBe("Policy number");
   });
 });
 

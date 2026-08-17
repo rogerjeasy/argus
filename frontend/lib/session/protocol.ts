@@ -1,4 +1,4 @@
-export type GuardrailDecisionValue = "approved" | "requires_confirmation" | "denied";
+export type GuardrailDecisionValue = "approved" | "requires_confirmation" | "requires_field_input" | "denied";
 
 export interface GuidanceFrame {
   type: "guidance";
@@ -7,6 +7,9 @@ export interface GuidanceFrame {
   earcon: string | null;
   guardrailDecision: GuardrailDecisionValue;
   stepId: string;
+  /** Only set when guardrailDecision === "requires_field_input" — the
+   * human-readable label of the one form field still needing a value. */
+  fieldLabel: string | null;
 }
 
 /**
@@ -44,6 +47,7 @@ export function parseControlFrame(raw: string): GuidanceFrame | null {
     earcon: typeof frame.earcon === "string" ? frame.earcon : null,
     guardrailDecision: frame.guardrail_decision as GuardrailDecisionValue,
     stepId: frame.step_id,
+    fieldLabel: typeof frame.field_label === "string" ? frame.field_label : null,
   };
 }
 
@@ -90,5 +94,18 @@ export function parseFramingFrame(raw: string): FramingFrame | null {
 export function sendResolveConfirmation(socket: WebSocket, stepId: string, accepted: boolean): void {
   if (socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify({ type: "resolve_confirmation", step_id: stepId, accepted }));
+  }
+}
+
+/**
+ * Sends the resolve_field_input control message back to the server — the
+ * path a submitted FormFieldPrompt uses. A spoken answer resolves the same
+ * pending field through a completely different route (transcribed speech,
+ * handled server-side in TaskOrchestrator.handle_goal); both converge on
+ * the same TaskOrchestrator.resolve_field_input call.
+ */
+export function sendResolveFieldInput(socket: WebSocket, stepId: string, value: string): void {
+  if (socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: "resolve_field_input", step_id: stepId, value }));
   }
 }
