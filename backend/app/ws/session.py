@@ -209,10 +209,19 @@ async def session_endpoint(
             except json.JSONDecodeError:
                 logger.warning("ws_session_malformed_client_text", extra={"session_id": session_id})
                 return
-            if not isinstance(payload, dict) or payload.get("type") != "resolve_confirmation":
+            if not isinstance(payload, dict):
                 return
-            accepted = bool(payload.get("accepted", False))
-            result = await orchestrator.resolve_confirmation(session_id, user.uid, accepted)
+
+            message_type = payload.get("type")
+            if message_type == "resolve_confirmation":
+                accepted = bool(payload.get("accepted", False))
+                result = await orchestrator.resolve_confirmation(session_id, user.uid, accepted)
+            elif message_type == "resolve_field_input":
+                value = str(payload.get("value", ""))
+                result = await orchestrator.resolve_field_input(session_id, user.uid, value)
+            else:
+                return
+
             if result is not None:
                 await _speak_and_send_guidance(result)
 

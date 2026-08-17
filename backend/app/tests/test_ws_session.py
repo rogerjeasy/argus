@@ -356,6 +356,44 @@ def test_client_text_message_resolves_a_pending_confirmation(monkeypatch) -> Non
     assert stub_bridge.spoken == ["Refill confirmed, ready tomorrow."]
 
 
+class _FakeOrchestratorWithFieldRequest:
+    def __init__(self) -> None:
+        self.resolve_calls: list[tuple[str, str, str]] = []
+
+    async def handle_goal(self, goal):
+        return _FakeOrchestratorResult("What's your policy number?", "requires_field_input")
+
+    async def resolve_field_input(self, session_id, uid, value):
+        self.resolve_calls.append((session_id, uid, value))
+        return _FakeOrchestratorResult("Got it, one more thing to confirm.", "requires_confirmation")
+
+
+def test_client_text_message_resolves_a_pending_field_request(monkeypatch) -> None:
+    import json
+
+    fake_db = FakeFirestoreClient()
+    stub_bridge = _StubBridgeWithTranscript()
+    fake_orchestrator = _FakeOrchestratorWithFieldRequest()
+
+    app.dependency_overrides[get_firestore_client] = lambda: fake_db
+    app.dependency_overrides[get_bridge_factory] = lambda: (lambda settings: stub_bridge)
+    monkeypatch.setattr("app.ws.session.verify_id_token_string", _authenticated_as("user-1"))
+    _mock_build_orchestrator(monkeypatch, fake_orchestrator)
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws/session?token=valid-token") as websocket:
+        websocket.receive_bytes()  # drain the stub's one audio chunk
+        websocket.send_text(json.dumps({"type": "resolve_field_input", "step_id": "step-1", "value": "POL-12345"}))
+        frame = json.loads(websocket.receive_text())
+
+    assert len(fake_orchestrator.resolve_calls) == 1
+    _, uid, value = fake_orchestrator.resolve_calls[0]
+    assert uid == "user-1"
+    assert value == "POL-12345"
+    assert frame["text"] == "Got it, one more thing to confirm."
+    assert frame["guardrail_decision"] == "requires_confirmation"
+
+
 def test_malformed_client_text_message_is_dropped_not_raised(monkeypatch) -> None:
     fake_db = FakeFirestoreClient()
     stub_bridge = _StubBridgeWithTranscript()
