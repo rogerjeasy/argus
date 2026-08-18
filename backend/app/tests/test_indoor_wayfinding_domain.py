@@ -61,3 +61,30 @@ async def test_ground_returns_unknown_in_signage_only_mode_with_no_scene_signal_
     assert fact.value == "unknown"
     assert fact.source == "signage_only"
     assert fact.confidence == 0.0
+
+
+@pytest.mark.asyncio
+async def test_ground_uses_scene_signal_text_as_the_value_in_signage_only_mode() -> None:
+    domain = _domain()  # no directory data — pure signage-only mode
+
+    fact = await domain.ground(
+        GroundingRequest(key="directory_entry", raw_goal_text="where's the breakfast room", scene_signal_text="  Room 204  ")
+    )
+
+    assert fact.value == "Room 204"  # stripped
+    assert fact.source == "signage_only"
+    assert fact.confidence == 0.6
+
+
+@pytest.mark.asyncio
+async def test_ground_prefers_directory_over_scene_signal_text_when_directory_has_data() -> None:
+    # The directory is the authoritative source when one exists — a scene
+    # signal is only ever load-bearing in pure signage-only mode.
+    domain = _domain({"venue-a": _ENTRIES})
+
+    fact = await domain.ground(
+        GroundingRequest(key="directory_entry", raw_goal_text="where's the breakfast room", scene_signal_text="Room 999")
+    )
+
+    assert fact.value == "Level 2, East Wing, past the elevators"
+    assert fact.source == "venue_directory"
