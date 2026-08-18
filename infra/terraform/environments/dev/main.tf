@@ -10,6 +10,7 @@ module "apis" {
     "cloudtrace.googleapis.com",
     "artifactregistry.googleapis.com",
     "storage.googleapis.com",
+    "cloudscheduler.googleapis.com",
   ]
 }
 
@@ -86,8 +87,20 @@ module "backend_service" {
     # list-typed env vars as JSON, so `["https://app.example.com"]` is what
     # Settings.cors_allow_origins needs to see. Without this the deployed
     # backend keeps its localhost-only default and blocks the real frontend.
-    CORS_ALLOW_ORIGINS            = jsonencode(var.cors_allow_origins)
-    PERSONAL_ADMIN_STORAGE_BUCKET = module.personal_admin_forms_bucket.name
+    CORS_ALLOW_ORIGINS             = jsonencode(var.cors_allow_origins)
+    PERSONAL_ADMIN_STORAGE_BUCKET  = module.personal_admin_forms_bucket.name
+    CALIBRATION_JOB_SHARED_SECRET  = var.calibration_job_shared_secret
   }
   depends_on = [module.artifact_registry]
+}
+
+module "calibration_schedule" {
+  source     = "../../modules/cloud_scheduler_job"
+  project_id = var.project_id
+  region     = var.region
+  name       = "argus-run-calibration"
+  schedule   = "0 6 * * *" # once daily, 06:00 UTC — matches the design doc §4's "periodic batch job" framing
+  http_uri   = "${module.backend_service.url}/internal/run-calibration"
+  headers    = { "X-Calibration-Secret" = var.calibration_job_shared_secret }
+  depends_on = [module.apis, module.backend_service]
 }

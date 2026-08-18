@@ -28,3 +28,10 @@ variable "backend_image" {
   description = "Full Artifact Registry image reference (tag or digest) for the backend container. Passed by CI at apply time; defaults to a public placeholder so the service can be created before the first real image exists."
   default     = "us-docker.pkg.dev/cloudrun/container/hello"
 }
+
+variable "calibration_job_shared_secret" {
+  type        = string
+  description = "Populated manually post-apply, same convention as this project's other externally-issued secrets (Twilio credentials are wired the same way — see the Self-Calibration plan's Task 9 note)."
+  default     = ""
+  sensitive   = true
+}
