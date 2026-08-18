@@ -1,5 +1,6 @@
 class FakeSnapshot:
-    def __init__(self, data: dict | None) -> None:
+    def __init__(self, doc_id: str, data: dict | None) -> None:
+        self.id = doc_id
         self._data = data
 
     @property
@@ -16,7 +17,7 @@ class FakeDocument:
         self._key = key
 
     def get(self) -> FakeSnapshot:
-        return FakeSnapshot(self._store.get(self._key))
+        return FakeSnapshot(self._key[-1], self._store.get(self._key))
 
     def set(self, data: dict, merge: bool = False) -> None:
         if merge:
@@ -42,6 +43,19 @@ class FakeCollection:
 
     def document(self, doc_id: str) -> FakeDocument:
         return FakeDocument(self._store, self._key + (doc_id,))
+
+    def stream(self) -> list[FakeSnapshot]:
+        """Mirrors google.cloud.firestore.CollectionReference.stream() —
+        every *direct* child document of this collection, not documents
+        nested further down under a subcollection. self._key + (doc_id,)
+        is a direct child iff its own key is exactly one segment longer
+        than self._key."""
+        prefix_len = len(self._key)
+        return [
+            FakeSnapshot(key[-1], data)
+            for key, data in self._store.items()
+            if len(key) == prefix_len + 1 and key[:prefix_len] == self._key
+        ]
 
 
 class FakeFirestoreClient:
