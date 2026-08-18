@@ -131,3 +131,64 @@ async def test_get_confirmation_history_is_scoped_to_category_and_provider() -> 
 
     assert len(history) == 1
     assert history[0].provider == "cvs-main-st"
+
+
+@pytest.mark.asyncio
+async def test_store_and_get_pending_calibration_proposal_round_trips() -> None:
+    from app.agents.calibration import CalibrationProposal
+
+    db = FakeFirestoreClient()
+    agent = MemoryAgent(db)
+    proposal = CalibrationProposal(category="pharmacy_refill", provider="cvs-main-st", evidence="approved 15/15 times")
+
+    proposal_id = await agent.store_calibration_proposal("u1", proposal)
+    pending = await agent.get_pending_calibration_proposal("u1")
+
+    assert pending is not None
+    fetched_id, fetched_proposal = pending
+    assert fetched_id == proposal_id
+    assert fetched_proposal.category == "pharmacy_refill"
+    assert fetched_proposal.status == "pending_user_opt_in"
+
+
+@pytest.mark.asyncio
+async def test_get_pending_calibration_proposal_returns_none_when_no_proposal_pending() -> None:
+    db = FakeFirestoreClient()
+    agent = MemoryAgent(db)
+
+    assert await agent.get_pending_calibration_proposal("u1") is None
+
+
+@pytest.mark.asyncio
+async def test_mark_calibration_proposal_dismissed_removes_it_from_pending() -> None:
+    from app.agents.calibration import CalibrationProposal
+
+    db = FakeFirestoreClient()
+    agent = MemoryAgent(db)
+    proposal = CalibrationProposal(category="pharmacy_refill", provider="cvs-main-st", evidence="approved 15/15 times")
+    proposal_id = await agent.store_calibration_proposal("u1", proposal)
+
+    await agent.mark_calibration_proposal_dismissed("u1", proposal_id)
+
+    assert await agent.get_pending_calibration_proposal("u1") is None
+
+
+@pytest.mark.asyncio
+async def test_apply_calibration_proposal_writes_a_standing_permission() -> None:
+    from app.agents.calibration import CalibrationProposal
+    from app.agents.guardrail import MIN_CONFIDENCE_FLOOR
+
+    db = FakeFirestoreClient()
+    agent = MemoryAgent(db)
+    proposal = CalibrationProposal(category="pharmacy_refill", provider="cvs-main-st", evidence="approved 15/15 times")
+    proposal_id = await agent.store_calibration_proposal("u1", proposal)
+
+    await agent.apply_calibration_proposal_to_standing_permissions("u1", proposal_id)
+
+    permissions = await agent.get_standing_permissions("u1")
+    assert len(permissions) == 1
+    assert permissions[0].category == "pharmacy_refill"
+    assert permissions[0].provider == "cvs-main-st"
+    assert permissions[0].threshold == MIN_CONFIDENCE_FLOOR
+    # applying also resolves the proposal — it must not still be "pending"
+    assert await agent.get_pending_calibration_proposal("u1") is None

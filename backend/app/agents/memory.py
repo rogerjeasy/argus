@@ -1,11 +1,18 @@
 import base64
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 from google.cloud import firestore, kms
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from app.core.config import get_settings
+
+if TYPE_CHECKING:
+    # Real import only for type checkers — a top-level runtime import here
+    # would be circular (app.agents.calibration imports MemoryAgent from
+    # this module). Every actual runtime use is a local import instead.
+    from app.agents.calibration import CalibrationProposal
 
 
 class StandingPermission(BaseModel):
@@ -87,6 +94,51 @@ class MemoryAgent:
             for s in snapshots
             if s.to_dict().get("category") == category and s.to_dict().get("provider") == provider
         ]
+
+    def _calibration_proposals_collection(self, uid: str):
+        return self._db.collection("argus_users").document(uid).collection("calibration_proposals")
+
+    async def store_calibration_proposal(self, uid: str, proposal: "CalibrationProposal") -> str:
+        import uuid
+        proposal_id = str(uuid.uuid4())
+        await run_in_threadpool(
+            self._calibration_proposals_collection(uid).document(proposal_id).set, proposal.model_dump()
+        )
+        return proposal_id
+
+    async def get_pending_calibration_proposal(self, uid: str) -> "tuple[str, CalibrationProposal] | None":
+        from app.agents.calibration import CalibrationProposal
+        snapshots = await run_in_threadpool(self._calibration_proposals_collection(uid).stream)
+        for snapshot in snapshots:
+            data = snapshot.to_dict()
+            if data.get("status") == "pending_user_opt_in":
+                return snapshot.id, CalibrationProposal(**data)
+        return None
+
+    async def mark_calibration_proposal_dismissed(self, uid: str, proposal_id: str) -> None:
+        await run_in_threadpool(
+            self._calibration_proposals_collection(uid).document(proposal_id).update, {"status": "dismissed"}
+        )
+
+    async def apply_calibration_proposal_to_standing_permissions(self, uid: str, proposal_id: str) -> None:
+        """The only method in this codebase Self-Calibration's proposal
+        flow can reach that writes to _permissions_doc — reached only from
+        TaskOrchestrator.resolve_confirmation's "calibration" branch, itself
+        reachable only after an explicit accepted=True from the user.
+        CalibrationAgent has no reference to this method (see
+        test_calibration_agent.py's write-scope-separation test)."""
+        from app.agents.guardrail import MIN_CONFIDENCE_FLOOR  # local: guardrail.py imports StandingPermission
+        # from this module, so a top-level import here would be circular.
+        snapshot = await run_in_threadpool(self._calibration_proposals_collection(uid).document(proposal_id).get)
+        proposal = snapshot.to_dict()
+        permissions = await self.get_standing_permissions(uid)
+        permissions.append(StandingPermission(
+            category=proposal["category"], provider=proposal.get("provider"), threshold=MIN_CONFIDENCE_FLOOR
+        ))
+        await run_in_threadpool(
+            self._permissions_doc(uid).set, {"rules": [p.model_dump() for p in permissions]}
+        )
+        await self.mark_calibration_proposal_dismissed(uid, proposal_id)
 
     async def get_standing_permissions(self, uid: str) -> list[StandingPermission]:
         snapshot = await run_in_threadpool(self._permissions_doc(uid).get)
