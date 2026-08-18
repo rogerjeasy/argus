@@ -96,3 +96,38 @@ async def test_update_profile_encrypts_sensitive_fields_through_kms(monkeypatch)
     loaded = await agent.get_profile("user-1")
     assert loaded.insurance_member_id == "ABC123"  # decrypted back on read
     assert len(kms.decrypt_calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_record_and_get_confirmation_history_round_trips() -> None:
+    db = FakeFirestoreClient()
+    agent = MemoryAgent(db)
+
+    await agent.record_confirmation_outcome(
+        "u1", category="pharmacy_refill", provider="cvs-main-st", decision="approved"
+    )
+    await agent.record_confirmation_outcome(
+        "u1", category="pharmacy_refill", provider="cvs-main-st", decision="approved"
+    )
+    await agent.record_confirmation_outcome(
+        "u1", category="bill_payment", provider=None, decision="denied"
+    )
+
+    history = await agent.get_confirmation_history("u1", category="pharmacy_refill", provider="cvs-main-st")
+
+    assert len(history) == 2
+    assert all(h.decision == "approved" for h in history)
+
+
+@pytest.mark.asyncio
+async def test_get_confirmation_history_is_scoped_to_category_and_provider() -> None:
+    db = FakeFirestoreClient()
+    agent = MemoryAgent(db)
+
+    await agent.record_confirmation_outcome("u1", category="pharmacy_refill", provider="cvs-main-st", decision="approved")
+    await agent.record_confirmation_outcome("u1", category="pharmacy_refill", provider="walgreens", decision="approved")
+
+    history = await agent.get_confirmation_history("u1", category="pharmacy_refill", provider="cvs-main-st")
+
+    assert len(history) == 1
+    assert history[0].provider == "cvs-main-st"

@@ -311,6 +311,12 @@ class TaskOrchestrator:
             return None
         del self._pending_input[session_id]
 
+        category = pending.step.payload.get("category", "uncategorized")
+        provider = pending.step.payload.get("provider")
+        await self._memory.record_confirmation_outcome(
+            uid, category=category, provider=provider, decision="approved" if accepted else "denied"
+        )
+
         if not accepted:
             guidance_output = GuidanceOutput(
                 session_id=session_id, text="Okay, I won't do that.", haptic_pattern=None, earcon=None

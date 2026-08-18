@@ -80,14 +80,83 @@ def _build_orchestrator_for_domain(domain: DomainPlugin, *, planner_response: st
     )
 
 
-def _planner_json(category: str = "stub-guidance") -> str:
+def _planner_json(category: str = "stub-guidance", provider: str | None = None) -> str:
     import json
-    return json.dumps({
+    payload = {
         "description": "Head to platform 4",
         "action_type": "guidance",
         "requires_confirmation": False,
         "category": category,
+    }
+    if provider is not None:
+        payload["provider"] = provider
+    return json.dumps(payload)
+
+
+class _RecordingExecutor:
+    def __init__(self) -> None:
+        self.received_payloads: list[dict] = []
+
+    async def execute(self, payload: dict) -> dict:
+        self.received_payloads.append(payload)
+        return {"step_id": "x", "status": "success", "structured_data": {}, "summary_text": "done"}
+
+
+async def _confirm_orchestrator(*, category: str, provider: str) -> tuple[TaskOrchestrator, str]:
+    """Real gap this plan's own research found while executing Task 2:
+    resolve_confirmation is only ever reachable via handle_document_signal's
+    _gate_and_respond tail — handle_goal alone never populates
+    _pending_input, since StubDomain/TransitDomain have no executors and
+    their own requires_confirmation decision is purely informational (see
+    handle_goal's body: it records _active and returns, it never checks
+    decision.decision at all). A StubDomain + handle_goal-only test (this
+    helper's first draft) can therefore never reach resolve_confirmation's
+    populated-pending state — this rebuilds the real PersonalAdminDomain +
+    handle_document_signal pattern test_e2e_personal_admin.py already
+    establishes, the only path that actually reaches it, adapted to a
+    parametrized category/provider. Returns (orchestrator, step_id)."""
+    import json
+
+    from app.agents.memory import PersonalAdminProfile, ProviderContact
+    from app.domains.personal_admin.domain import PersonalAdminDomain
+    from app.models.agent_events import SceneSignal
+
+    triage_response = json.dumps({"category": category, "urgency": "normal", "subflow": "call", "confidence": 0.9})
+    triage_runner = FakeLlmAgentRunner(next_response=triage_response)
+    guardrail = GuardrailAgent()
+    db = FakeFirestoreClient()
+    memory = MemoryAgent(db, kms=None)
+    await memory.update_profile("u1", PersonalAdminProfile(
+        known_providers=[ProviderContact(name=provider, phone_number="+15559990000", category=category)]
+    ))
+
+    domain = PersonalAdminDomain(triage_runner, memory, guardrail)
+    domain.executors["call"] = _RecordingExecutor()
+
+    planner_response = json.dumps({
+        "description": f"call {provider}", "action_type": "execute",
+        "requires_confirmation": False, "category": category,
     })
+    orchestrator = TaskOrchestrator(
+        perception=PerceptionAgent(),
+        router=DomainRouterAgent(FakeLlmAgentRunner(), domains=[domain]),
+        grounding_agents={"personal_admin": GroundingAgent(domain)},
+        domains={"personal_admin": domain},
+        planner=PlannerAgent(FakeLlmAgentRunner(next_response=planner_response)),
+        guardrail=guardrail,
+        replanning=ReplanningAgent(),
+        guidance=GuidanceAgent(FakeLlmAgentRunner(next_response="unused")),
+        memory=memory,
+        escalation=EscalationAgent(db, _FakePublisher(), LoggingNotificationSender()),
+    )
+
+    await orchestrator.handle_goal(PerceivedGoal(session_id="s1", uid="u1", raw_text="deal with this"))
+    signal = SceneSignal(session_id="s1", kind="signage_text", text=f"{provider} notice", confidence=0.9)
+    triage_result = await orchestrator.handle_document_signal(signal)
+    assert triage_result is not None
+    assert triage_result.guardrail.decision == "requires_confirmation"
+
+    return orchestrator, triage_result.guardrail.step_id
 
 
 @pytest.mark.asyncio
@@ -666,3 +735,25 @@ async def test_handle_scene_signal_resolves_a_signage_only_fact_via_replan() -> 
     active = orchestrator._active["s1"]
     assert active.fact.value == "Breakfast Room this way"
     assert active.fact.source == "signage_only"
+
+
+@pytest.mark.asyncio
+async def test_resolve_confirmation_declined_records_a_denied_outcome() -> None:
+    orch, step_id = await _confirm_orchestrator(category="pharmacy_refill", provider="cvs-main-st")
+
+    await orch.resolve_confirmation("s1", "u1", accepted=False)
+
+    history = await orch._memory.get_confirmation_history("u1", category="pharmacy_refill", provider="cvs-main-st")
+    assert len(history) == 1
+    assert history[0].decision == "denied"
+
+
+@pytest.mark.asyncio
+async def test_resolve_confirmation_accepted_records_an_approved_outcome() -> None:
+    orch, step_id = await _confirm_orchestrator(category="pharmacy_refill", provider="cvs-main-st")
+
+    await orch.resolve_confirmation("s1", "u1", accepted=True)
+
+    history = await orch._memory.get_confirmation_history("u1", category="pharmacy_refill", provider="cvs-main-st")
+    assert len(history) == 1
+    assert history[0].decision == "approved"

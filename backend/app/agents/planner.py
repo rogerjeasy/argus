@@ -18,7 +18,7 @@ class PlannerAgent:
         prompt = (
             f"Goal: {goal.raw_text}\nGrounded facts:\n{facts_text}\n\n"
             'Reply with JSON only: {"description": str, "action_type": "guidance"|"execute", '
-            '"requires_confirmation": bool, "category": str}'
+            '"requires_confirmation": bool, "category": str, "provider": str|null}'
         )
         response = await self._runner.invoke(user_id=goal.uid, session_id=goal.session_id, prompt=prompt)
         try:
@@ -26,11 +26,20 @@ class PlannerAgent:
         except json.JSONDecodeError as exc:
             raise ValueError(f"could not parse planner response: {response!r}") from exc
 
+        payload = {"category": parsed["category"]}
+        # Optional — .get(), not [...], so every existing scripted test
+        # response (none of which include "provider") is unaffected. Before
+        # this, GuardrailAgent.evaluate()'s own step.payload.get("provider")
+        # read was unreachable dead code for any flow that doesn't go
+        # through PersonalAdminDomain's build_executor_payload override.
+        if parsed.get("provider") is not None:
+            payload["provider"] = parsed["provider"]
+
         return PlanStep(
             step_id=str(uuid.uuid4()),
             domain_id=domain_id,
             description=parsed["description"],
             action_type=parsed["action_type"],
             requires_confirmation=parsed["requires_confirmation"],
-            payload={"category": parsed["category"]},
+            payload=payload,
         )

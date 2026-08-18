@@ -14,6 +14,13 @@ class StandingPermission(BaseModel):
     provider: str | None = None
 
 
+class ConfirmationOutcome(BaseModel):
+    category: str
+    provider: str | None
+    decision: str  # "approved" | "denied"
+    decided_at: str  # ISO 8601, matches record_task_history's own convention
+
+
 class ProviderContact(BaseModel):
     name: str
     phone_number: str
@@ -54,6 +61,32 @@ class MemoryAgent:
 
     def _profile_doc(self, uid: str):
         return self._db.collection("argus_users").document(uid).collection("personal_admin").document("profile")
+
+    def _confirmation_history_collection(self, uid: str):
+        return self._db.collection("argus_users").document(uid).collection("confirmation_history")
+
+    async def record_confirmation_outcome(
+        self, uid: str, *, category: str, provider: str | None, decision: str
+    ) -> None:
+        import uuid
+        doc_id = str(uuid.uuid4())
+        await run_in_threadpool(
+            self._confirmation_history_collection(uid).document(doc_id).set,
+            {
+                "category": category, "provider": provider, "decision": decision,
+                "decided_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
+    async def get_confirmation_history(
+        self, uid: str, *, category: str, provider: str | None
+    ) -> list[ConfirmationOutcome]:
+        snapshots = await run_in_threadpool(self._confirmation_history_collection(uid).stream)
+        return [
+            ConfirmationOutcome(**s.to_dict())
+            for s in snapshots
+            if s.to_dict().get("category") == category and s.to_dict().get("provider") == provider
+        ]
 
     async def get_standing_permissions(self, uid: str) -> list[StandingPermission]:
         snapshot = await run_in_threadpool(self._permissions_doc(uid).get)
