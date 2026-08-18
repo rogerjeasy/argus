@@ -227,6 +227,9 @@ class _FakeOrchestrator:
     async def check_for_pending_calibration_proposal(self, session_id, uid):
         return None
 
+    async def handle_ambient_sound_signal(self, session_id, uid, category):
+        return None
+
 
 def test_ws_session_sends_a_guidance_frame_after_a_finished_transcript(monkeypatch) -> None:
     import json
@@ -332,6 +335,9 @@ class _FakeOrchestratorWithConfirmation:
     async def check_for_pending_calibration_proposal(self, session_id, uid):
         return None
 
+    async def handle_ambient_sound_signal(self, session_id, uid, category):
+        return None
+
 
 def test_client_text_message_resolves_a_pending_confirmation(monkeypatch) -> None:
     import json
@@ -374,6 +380,9 @@ class _FakeOrchestratorWithFieldRequest:
         return _FakeOrchestratorResult("Got it, one more thing to confirm.", "requires_confirmation")
 
     async def check_for_pending_calibration_proposal(self, session_id, uid):
+        return None
+
+    async def handle_ambient_sound_signal(self, session_id, uid, category):
         return None
 
 
@@ -480,6 +489,9 @@ class _FakeOrchestratorWithCalibrationProposal:
             "I've noticed a pattern — want me to stop asking?", "requires_confirmation"
         )
 
+    async def handle_ambient_sound_signal(self, session_id, uid, category):
+        return None
+
 
 def test_session_connect_speaks_a_pending_calibration_proposal_first(monkeypatch) -> None:
     import json
@@ -503,3 +515,74 @@ def test_session_connect_speaks_a_pending_calibration_proposal_first(monkeypatch
     assert frame["type"] == "guidance"
     assert "pattern" in frame["text"]
     assert stub_bridge.spoken == ["I've noticed a pattern — want me to stop asking?"]
+
+
+class _FakeAudioPerceptionOrchestrator:
+    def __init__(self) -> None:
+        self.ambient_calls: list[tuple[str, str, str]] = []
+
+    async def handle_goal(self, goal):
+        return _FakeOrchestratorResult("Head to platform 4.", "requires_confirmation")
+
+    async def check_for_pending_calibration_proposal(self, session_id, uid):
+        return None
+
+    async def handle_ambient_sound_signal(self, session_id, uid, category):
+        self.ambient_calls.append((session_id, uid, category))
+        return None
+
+
+def test_audio_perception_runs_when_enabled_and_throttled(monkeypatch) -> None:
+    """51 one-byte audio frames — the throttle should fire exactly once
+    (on the 50th), not 51 times and not zero times."""
+    fake_db = FakeFirestoreClient()
+    fake_db.collection("argus_users").document("user-1").collection("settings").document("preferences").set(
+        {"verbosity": "normal", "pace": "normal", "audio_perception_enabled": True}
+    )
+    stub_bridge = _StubBridge()
+    fake_orchestrator = _FakeAudioPerceptionOrchestrator()
+
+    class _AlwaysAlarmClassifier:
+        async def classify(self, audio_chunk: bytes) -> str:
+            return "alarm"
+
+    app.dependency_overrides[get_firestore_client] = lambda: fake_db
+    app.dependency_overrides[get_bridge_factory] = lambda: (lambda settings: stub_bridge)
+    from app.ws.session import get_audio_classifier_factory
+    app.dependency_overrides[get_audio_classifier_factory] = lambda: (lambda settings: _AlwaysAlarmClassifier())
+    monkeypatch.setattr("app.ws.session.verify_id_token_string", _authenticated_as("user-1"))
+    _mock_build_orchestrator(monkeypatch, fake_orchestrator)
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws/session?token=valid-token") as websocket:
+        for _ in range(51):
+            websocket.send_bytes(bytes([1]) + b"x")
+        websocket.receive_bytes()
+
+    assert len(fake_orchestrator.ambient_calls) == 1
+    assert fake_orchestrator.ambient_calls[0][2] == "alarm"
+
+
+def test_audio_perception_never_runs_when_disabled(monkeypatch) -> None:
+    fake_db = FakeFirestoreClient()  # no settings doc at all — defaults to disabled
+    stub_bridge = _StubBridge()
+    fake_orchestrator = _FakeAudioPerceptionOrchestrator()
+
+    class _FailIfCalledClassifier:
+        async def classify(self, audio_chunk: bytes) -> str:
+            raise AssertionError("must never be invoked when audio_perception_enabled is False")
+
+    app.dependency_overrides[get_firestore_client] = lambda: fake_db
+    app.dependency_overrides[get_bridge_factory] = lambda: (lambda settings: stub_bridge)
+    from app.ws.session import get_audio_classifier_factory
+    app.dependency_overrides[get_audio_classifier_factory] = lambda: (lambda settings: _FailIfCalledClassifier())
+    monkeypatch.setattr("app.ws.session.verify_id_token_string", _authenticated_as("user-1"))
+    _mock_build_orchestrator(monkeypatch, fake_orchestrator)
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws/session?token=valid-token") as websocket:
+        for _ in range(100):
+            websocket.send_bytes(bytes([1]) + b"x")
+        websocket.receive_bytes()
+
+    assert fake_orchestrator.ambient_calls == []

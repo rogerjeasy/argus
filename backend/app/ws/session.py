@@ -13,6 +13,7 @@ from google.cloud import firestore
 from starlette.concurrency import run_in_threadpool
 from starlette.websockets import WebSocketState
 
+from app.agents.audio_perception import AudioClassifier, AudioPerceptionAgent
 from app.agents.escalation import EscalationAgent, LoggingNotificationSender
 from app.agents.grounding import GroundingAgent
 from app.agents.guardrail import GuardrailAgent
@@ -54,6 +55,29 @@ FRAME_TYPE_VIDEO = 2
 
 def get_bridge_factory() -> Callable[[Settings], GeminiLiveBridge]:
     return lambda settings: GeminiLiveBridge(settings)
+
+
+class _NoOpAudioClassifier:
+    """The honest default until a real Gemini-backed classifier is wired
+    in (pre-demo checklist) — always reports "nothing concerning heard"
+    rather than crashing or guessing. The opt-in pipeline runs end-to-end
+    with this in place; it simply never flags anything until swapped for
+    a real implementation via the same factory-injection pattern
+    get_bridge_factory already uses."""
+
+    async def classify(self, audio_chunk: bytes) -> str:
+        return "none"
+
+
+def get_audio_classifier_factory() -> Callable[[Settings], AudioClassifier]:
+    return lambda settings: _NoOpAudioClassifier()
+
+
+#: Classify roughly every Nth audio chunk, not every one — cost-tiering,
+#: matches design doc §5's own framing. Not derived from real chunk-size/
+#: timing data; tune once real audio capture cadence is known (pre-demo
+#: checklist).
+_AUDIO_CLASSIFICATION_CHUNK_INTERVAL = 50
 
 
 def _reasoning_model(settings: Settings) -> Gemini:
@@ -156,6 +180,7 @@ async def session_endpoint(
     db: firestore.Client = Depends(get_firestore_client),
     settings: Settings = Depends(get_settings),
     bridge_factory: Callable[[Settings], GeminiLiveBridge] = Depends(get_bridge_factory),
+    audio_classifier_factory: Callable[[Settings], AudioClassifier] = Depends(get_audio_classifier_factory),
 ) -> None:
     try:
         user = await run_in_threadpool(_authenticate, websocket)
@@ -187,6 +212,14 @@ async def session_endpoint(
 
         bridge = bridge_factory(settings)
         orchestrator = await build_orchestrator(db)
+
+        user_settings = await MemoryAgent(db).get_user_settings(user.uid)
+        audio_perception_agent = (
+            AudioPerceptionAgent(audio_classifier_factory(settings))
+            if user_settings.audio_perception_enabled
+            else None
+        )
+        audio_chunk_counter = 0
 
         async def _speak_and_send_guidance(result) -> None:
             await bridge.speak(result.guidance.text)
@@ -297,6 +330,7 @@ async def session_endpoint(
                 await websocket.send_bytes(chunk)
 
         async def relay_from_client() -> None:
+            nonlocal audio_chunk_counter
             first_frame_logged = False
             while True:
                 message = await websocket.receive()
@@ -322,6 +356,16 @@ async def session_endpoint(
                 frame_type, payload = chunk[0], chunk[1:]
                 if frame_type == FRAME_TYPE_AUDIO:
                     await bridge.send_audio(payload)
+                    if audio_perception_agent is not None:
+                        audio_chunk_counter += 1
+                        if audio_chunk_counter % _AUDIO_CLASSIFICATION_CHUNK_INTERVAL == 0:
+                            category = await audio_perception_agent.classify_ambient_sound(payload)
+                            if category is not None:
+                                ambient_result = await orchestrator.handle_ambient_sound_signal(
+                                    session_id, user.uid, category
+                                )
+                                if ambient_result is not None:
+                                    await _speak_and_send_guidance(ambient_result)
                 elif frame_type == FRAME_TYPE_VIDEO:
                     await bridge.send_video_frame(payload)
                 else:
