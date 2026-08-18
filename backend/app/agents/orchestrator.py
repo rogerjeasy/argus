@@ -50,12 +50,13 @@ class _ActiveTask:
 
 @dataclass
 class _PendingInput:
-    step: PlanStep
     uid: str
-    domain_id: str
-    mode: str  # "confirm" | "field_request"
-    confidence: float
+    mode: str  # "confirm" | "field_request" | "calibration"
+    step: PlanStep | None = None
+    domain_id: str | None = None
+    confidence: float = 0.0
     field_name: str | None = None  # only set when mode == "field_request"
+    calibration_proposal_id: str | None = None  # only set when mode == "calibration"
 
 
 class TaskOrchestrator:
@@ -304,6 +305,27 @@ class TaskOrchestrator:
             return OrchestrationResult(guidance=guidance_output, guardrail=decision)
 
         return await self._gate_and_respond(signal.session_id, active.goal.uid, active.domain_id, step, fact.confidence)
+
+    async def check_for_pending_calibration_proposal(self, session_id: str, uid: str) -> OrchestrationResult | None:
+        pending_proposal = await self._memory.get_pending_calibration_proposal(uid)
+        if pending_proposal is None:
+            return None
+        proposal_id, proposal = pending_proposal
+
+        self._pending_input[session_id] = _PendingInput(
+            uid=uid, mode="calibration", calibration_proposal_id=proposal_id,
+        )
+        provider_text = f" at {proposal.provider}" if proposal.provider else ""
+        guidance_output = GuidanceOutput(
+            session_id=session_id,
+            text=(
+                f"I've noticed a pattern: {proposal.category.replace('_', ' ')}{provider_text} — {proposal.evidence}. "
+                "Want me to stop asking and just go ahead next time?"
+            ),
+            haptic_pattern=None, earcon=None,
+        )
+        decision = GuardrailDecision(step_id=proposal_id, decision="requires_confirmation", reason="pending calibration proposal")
+        return OrchestrationResult(guidance=guidance_output, guardrail=decision)
 
     async def resolve_confirmation(self, session_id: str, uid: str, accepted: bool) -> OrchestrationResult | None:
         pending = self._pending_input.get(session_id)

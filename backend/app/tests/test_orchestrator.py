@@ -757,3 +757,36 @@ async def test_resolve_confirmation_accepted_records_an_approved_outcome() -> No
     history = await orch._memory.get_confirmation_history("u1", category="pharmacy_refill", provider="cvs-main-st")
     assert len(history) == 1
     assert history[0].decision == "approved"
+
+
+@pytest.mark.asyncio
+async def test_check_for_pending_calibration_proposal_offers_it_as_a_confirmation() -> None:
+    """Uses the file's plain _build_orchestrator (StubDomain-based), not
+    _confirm_orchestrator — the "calibration" pending mode is set directly
+    by check_for_pending_calibration_proposal itself, independent of any
+    domain's own confirm flow, so the lightweight existing helper is both
+    sufficient and the correct-weight tool here (see the note on
+    _confirm_orchestrator's own real-PersonalAdminDomain requirement)."""
+    from app.agents.calibration import CalibrationProposal
+
+    source = FakeGroundingSource()
+    source.set_answer("platform", "4")
+    orch = _build_orchestrator(source, planner_response=_planner_json())
+    proposal = CalibrationProposal(category="pharmacy_refill", provider="cvs-main-st", evidence="approved 15/15 times")
+    proposal_id = await orch._memory.store_calibration_proposal("u1", proposal)
+
+    result = await orch.check_for_pending_calibration_proposal("s1", "u1")
+
+    assert result is not None
+    assert result.guardrail.decision == "requires_confirmation"
+    assert result.guardrail.step_id == proposal_id
+    assert "pharmacy_refill" in result.guidance.text or "15/15" in result.guidance.text
+
+
+@pytest.mark.asyncio
+async def test_check_for_pending_calibration_proposal_returns_none_when_nothing_pending() -> None:
+    source = FakeGroundingSource()
+    source.set_answer("platform", "4")
+    orch = _build_orchestrator(source, planner_response=_planner_json())
+
+    assert await orch.check_for_pending_calibration_proposal("s1", "u1") is None
