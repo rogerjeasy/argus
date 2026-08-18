@@ -141,3 +141,42 @@ async def test_ground_forwards_uid_to_the_domain() -> None:
     await agent.ground("profile", uid="user-42")
 
     assert domain.received_uid == "user-42"
+
+
+@pytest.mark.asyncio
+async def test_ground_forwards_scene_signal_text_to_the_domain() -> None:
+    class _RecordingDomain:
+        domain_id = "recording"
+        executors: dict = {}
+
+        def __init__(self) -> None:
+            self.received_scene_signal_text: str | None = None
+
+        def matches(self, goal_text: str) -> bool:
+            return True
+
+        async def ground(self, request):
+            self.received_scene_signal_text = request.scene_signal_text
+            from datetime import datetime, timezone
+            from app.models.agent_events import GroundedFact
+            return GroundedFact(key=request.key, value="x", source="test", confidence=1.0, as_of=datetime.now(timezone.utc))
+
+    domain = _RecordingDomain()
+    agent = GroundingAgent(domain)
+
+    await agent.ground("directory_entry", scene_signal_text="Room 204")
+
+    assert domain.received_scene_signal_text == "Room 204"
+
+
+@pytest.mark.asyncio
+async def test_ground_defaults_scene_signal_text_to_empty_string() -> None:
+    source = FakeGroundingSource()
+    source.set_answer("platform", "4")
+    agent = GroundingAgent(StubDomain(source))
+
+    # Existing callers (e.g. TransitDomain's polling-triggered re-ground)
+    # never pass scene_signal_text — this must keep working unmodified.
+    fact = await agent.ground("platform")
+
+    assert fact.value == "4"

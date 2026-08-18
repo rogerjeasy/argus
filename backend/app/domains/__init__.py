@@ -29,6 +29,13 @@ class GroundingRequest(BaseModel):
     #: profile directly in build_executor_payload, so ground() must not deny
     #: on that irrelevant question.
     subflow: str = ""
+    #: The live camera-read signage text, when this grounding call was
+    #: triggered by a scene signal rather than a polling recheck or the
+    #: initial goal. Optional and defaulted so every existing call site
+    #: (TransitDomain's polling-triggered re-ground, PersonalAdminDomain,
+    #: StubDomain) is unaffected. IndoorWayfindingDomain's signage-only mode
+    #: is the first domain that reads this — see app/domains/indoor_wayfinding/domain.py.
+    scene_signal_text: str = ""
 
     model_config = {"arbitrary_types_allowed": True}
 
