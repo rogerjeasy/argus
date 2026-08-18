@@ -180,3 +180,45 @@ async def test_ground_defaults_scene_signal_text_to_empty_string() -> None:
     fact = await agent.ground("platform")
 
     assert fact.value == "4"
+
+
+def test_scene_signal_suggests_divergence_falls_back_to_digit_pattern_when_domain_has_no_hook() -> None:
+    # StubDomain defines no extract_signage_candidate — must behave exactly
+    # as it does today (this duplicates test_scene_signal_suggests_divergence_
+    # when_a_different_platform_digit_is_read above, as an explicit
+    # regression pin on the fallback path specifically).
+    from datetime import datetime, timezone
+    from app.models.agent_events import GroundedFact, SceneSignal
+
+    agent = GroundingAgent(StubDomain(FakeGroundingSource()))
+    expected = GroundedFact(key="platform", value="4", source="stub_feed", confidence=1.0, as_of=datetime.now(timezone.utc))
+    signal = SceneSignal(session_id="s1", kind="signage_text", text="Platform 7", confidence=0.9)
+
+    assert agent.scene_signal_suggests_divergence(expected=expected, signal=signal) is True
+
+
+@pytest.mark.asyncio
+async def test_scene_signal_suggests_divergence_uses_the_domain_hook_when_present() -> None:
+    from datetime import datetime, timezone
+    from app.models.agent_events import GroundedFact, SceneSignal
+
+    class _HookDomain:
+        domain_id = "hooked"
+        executors: dict = {}
+
+        def matches(self, goal_text: str) -> bool:
+            return True
+
+        async def ground(self, request):
+            raise NotImplementedError
+
+        def extract_signage_candidate(self, text: str) -> str | None:
+            return text.strip() or None
+
+    agent = GroundingAgent(_HookDomain())
+    expected = GroundedFact(key="directory_entry", value="unknown", source="signage_only", confidence=0.0, as_of=datetime.now(timezone.utc))
+    signal = SceneSignal(session_id="s1", kind="signage_text", text="Breakfast Room", confidence=0.9)
+
+    # No digit anywhere in "Breakfast Room" — the digit-pattern fallback
+    # would return False here; the hook must be what actually decides.
+    assert agent.scene_signal_suggests_divergence(expected=expected, signal=signal) is True

@@ -88,3 +88,23 @@ async def test_ground_prefers_directory_over_scene_signal_text_when_directory_ha
 
     assert fact.value == "Level 2, East Wing, past the elevators"
     assert fact.source == "venue_directory"
+
+
+def test_extract_signage_candidate_matches_a_directory_entry_by_name() -> None:
+    domain = _domain({"venue-a": _ENTRIES})
+    assert domain.extract_signage_candidate("Breakfast Room") == "Level 2, East Wing, past the elevators"
+
+
+def test_extract_signage_candidate_returns_none_for_unrecognized_directory_text() -> None:
+    domain = _domain({"venue-a": _ENTRIES})
+    assert domain.extract_signage_candidate("Gift Shop") is None
+
+
+def test_extract_signage_candidate_returns_the_raw_text_in_signage_only_mode() -> None:
+    domain = _domain()  # no directory data
+    assert domain.extract_signage_candidate("Room 204") == "Room 204"
+
+
+def test_extract_signage_candidate_returns_none_for_blank_text() -> None:
+    domain = _domain()
+    assert domain.extract_signage_candidate("   ") is None

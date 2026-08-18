@@ -41,16 +41,30 @@ class GroundingAgent:
 
     def scene_signal_suggests_divergence(self, *, expected: GroundedFact, signal: SceneSignal) -> bool:
         """Gates whether a camera signal is worth a re-ground — never the
-        divergence decision itself (that's still the real feed via
-        check_for_divergence, GTFS-Realtime is the tie-breaker, not the
-        camera alone). Both red-team cases from the design doc are enforced
-        here: a low-confidence read and a signal with no plausible
-        platform-shaped content each return False before any grounding
-        call happens."""
+        divergence decision itself (that's still the real feed/directory via
+        check_for_divergence). Both red-team cases from the design doc are
+        enforced here regardless of domain: a low-confidence read and a
+        signal with no plausible candidate content each return False before
+        any grounding call happens.
+
+        A domain may define extract_signage_candidate(text) -> str | None
+        to say what "plausible content for this domain" means (e.g.
+        IndoorWayfindingDomain matches against directory entries or, in
+        signage-only mode, accepts any non-blank read). Domains that don't
+        define it (TransitDomain, StubDomain, PersonalAdminDomain) fall back
+        to the original digit-pattern check, unmodified — see the design
+        doc §3's explicit instruction not to change this shape for domains
+        that don't need to."""
         if signal.kind != "signage_text":
             return False
         if signal.confidence < MIN_CONFIDENCE_FLOOR:
             return False
+
+        extractor = getattr(self._domain, "extract_signage_candidate", None)
+        if extractor is not None:
+            candidate = extractor(signal.text)
+            return candidate is not None and candidate != expected.value
+
         match = _DIGIT_PATTERN.search(signal.text)
         if match is None:
             return False

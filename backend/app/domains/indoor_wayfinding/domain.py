@@ -67,3 +67,12 @@ class IndoorWayfindingDomain:
             key=request.key, value="unknown", source="signage_only",
             confidence=_UNRESOLVED_CONFIDENCE, as_of=datetime.now(timezone.utc),
         )
+
+    def extract_signage_candidate(self, text: str) -> str | None:
+        stripped = text.strip()
+        if not stripped:
+            return None
+        if self._directory_index.has_data_for(self._config.venue_id):
+            entry = self._directory_index.resolve(self._config.venue_id, stripped)
+            return entry.value if entry is not None else None
+        return stripped
