@@ -29,6 +29,7 @@ from app.core.clients import get_firestore_client, get_storage_client
 from app.core.config import Settings, get_settings
 from app.core.pubsub import get_publisher_client
 from app.core.telemetry import get_tracer
+from app.domains.indoor_wayfinding.registry import get_indoor_wayfinding_domain
 from app.domains.personal_admin.call_executor import CallExecutor
 from app.domains.personal_admin.domain import PersonalAdminDomain
 from app.domains.personal_admin.form_executor import FormExecutor
@@ -77,6 +78,7 @@ async def build_orchestrator(db: firestore.Client) -> TaskOrchestrator:
     # app/domains/transit/registry.py — so this doesn't refetch/reparse the
     # static feed on every WebSocket session.
     transit_domains = await get_transit_domains(settings)
+    indoor_wayfinding_domain = await get_indoor_wayfinding_domain(settings)
     router_runner = LlmAgentRunner(
         agent=LlmAgent(
             name="domain_router", model=_reasoning_model(settings), instruction="Classify the goal into one domain id."
@@ -112,7 +114,7 @@ async def build_orchestrator(db: firestore.Client) -> TaskOrchestrator:
         storage = RealStorageClient(settings.personal_admin_storage_bucket, sdk_client=get_storage_client())
         personal_admin.executors["form"] = FormExecutor(storage)
 
-    domains = [*transit_domains, personal_admin]
+    domains = [*transit_domains, personal_admin, indoor_wayfinding_domain]
     grounding_agents = {d.domain_id: GroundingAgent(d) for d in domains}
     domain_registry = {d.domain_id: d for d in domains}
     return TaskOrchestrator(
