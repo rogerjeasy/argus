@@ -17,17 +17,36 @@ def test_get_settings_returns_defaults_when_unset() -> None:
     client = _client()
     response = client.get("/api/settings")
     assert response.status_code == 200
-    assert response.json() == {"verbosity": "normal", "pace": "normal"}
+    assert response.json() == {"verbosity": "normal", "pace": "normal", "audio_perception_enabled": False}
 
 
 def test_put_settings_persists_partial_update() -> None:
     client = _client()
     response = client.put("/api/settings", json={"verbosity": "terse"})
     assert response.status_code == 200
-    assert response.json() == {"verbosity": "terse", "pace": "normal"}
+    assert response.json() == {"verbosity": "terse", "pace": "normal", "audio_perception_enabled": False}
 
     follow_up = client.get("/api/settings")
-    assert follow_up.json() == {"verbosity": "terse", "pace": "normal"}
+    assert follow_up.json() == {"verbosity": "terse", "pace": "normal", "audio_perception_enabled": False}
+
+
+def test_put_settings_can_enable_audio_perception() -> None:
+    client = _client()
+    response = client.put("/api/settings", json={"audio_perception_enabled": True})
+    assert response.status_code == 200
+    assert response.json() == {"verbosity": "normal", "pace": "normal", "audio_perception_enabled": True}
+
+
+def test_put_settings_can_explicitly_disable_audio_perception_after_enabling() -> None:
+    """exclude_none=True (UserSettingsUpdate's existing pattern in
+    update_user_settings) must still allow explicitly setting False —
+    False is not None, so this must not be silently dropped."""
+    client = _client()
+    client.put("/api/settings", json={"audio_perception_enabled": True})
+
+    response = client.put("/api/settings", json={"audio_perception_enabled": False})
+
+    assert response.json()["audio_perception_enabled"] is False
 
 
 def test_settings_writes_to_argus_prefixed_collection() -> None:
