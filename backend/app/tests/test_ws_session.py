@@ -224,6 +224,9 @@ class _FakeOrchestrator:
     async def handle_goal(self, goal):
         return _FakeOrchestratorResult("Head to platform 4.", "requires_confirmation")
 
+    async def check_for_pending_calibration_proposal(self, session_id, uid):
+        return None
+
 
 def test_ws_session_sends_a_guidance_frame_after_a_finished_transcript(monkeypatch) -> None:
     import json
@@ -326,6 +329,9 @@ class _FakeOrchestratorWithConfirmation:
         self.resolve_calls.append((session_id, uid, accepted))
         return _FakeOrchestratorResult("Refill confirmed, ready tomorrow.", "approved")
 
+    async def check_for_pending_calibration_proposal(self, session_id, uid):
+        return None
+
 
 def test_client_text_message_resolves_a_pending_confirmation(monkeypatch) -> None:
     import json
@@ -366,6 +372,9 @@ class _FakeOrchestratorWithFieldRequest:
     async def resolve_field_input(self, session_id, uid, value):
         self.resolve_calls.append((session_id, uid, value))
         return _FakeOrchestratorResult("Got it, one more thing to confirm.", "requires_confirmation")
+
+    async def check_for_pending_calibration_proposal(self, session_id, uid):
+        return None
 
 
 def test_client_text_message_resolves_a_pending_field_request(monkeypatch) -> None:
@@ -456,3 +465,41 @@ def test_build_orchestrator_registers_personal_admin_alongside_transit(monkeypat
     personal_admin = orchestrator._domains["personal_admin"]
     assert personal_admin.executors == {}  # no Twilio credentials in this test's Settings
     reset_transit_domain_registry_for_tests()
+
+
+class _FakeOrchestratorWithCalibrationProposal:
+    def __init__(self) -> None:
+        self.checked_calls: list[tuple[str, str]] = []
+
+    async def handle_goal(self, goal):
+        return _FakeOrchestratorResult("Head to platform 4.", "requires_confirmation")
+
+    async def check_for_pending_calibration_proposal(self, session_id, uid):
+        self.checked_calls.append((session_id, uid))
+        return _FakeOrchestratorResult(
+            "I've noticed a pattern — want me to stop asking?", "requires_confirmation"
+        )
+
+
+def test_session_connect_speaks_a_pending_calibration_proposal_first(monkeypatch) -> None:
+    import json
+
+    fake_db = FakeFirestoreClient()
+    stub_bridge = _StubBridgeWithTranscript()
+    fake_orchestrator = _FakeOrchestratorWithCalibrationProposal()
+
+    app.dependency_overrides[get_firestore_client] = lambda: fake_db
+    app.dependency_overrides[get_bridge_factory] = lambda: (lambda settings: stub_bridge)
+    monkeypatch.setattr("app.ws.session.verify_id_token_string", _authenticated_as("user-1"))
+    _mock_build_orchestrator(monkeypatch, fake_orchestrator)
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws/session?token=valid-token") as websocket:
+        frame = json.loads(websocket.receive_text())
+
+    assert len(fake_orchestrator.checked_calls) == 1
+    _, uid = fake_orchestrator.checked_calls[0]
+    assert uid == "user-1"
+    assert frame["type"] == "guidance"
+    assert "pattern" in frame["text"]
+    assert stub_bridge.spoken == ["I've noticed a pattern — want me to stop asking?"]

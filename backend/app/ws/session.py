@@ -286,6 +286,10 @@ async def session_endpoint(
             extra={"session_id": session_id, "uid": user.uid},
         )
 
+        initial_calibration_offer = await orchestrator.check_for_pending_calibration_proposal(session_id, user.uid)
+        if initial_calibration_offer is not None:
+            await _speak_and_send_guidance(initial_calibration_offer)
+
         final_status = "closed"
 
         async def relay_from_gemini() -> None:
