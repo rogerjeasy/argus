@@ -80,3 +80,36 @@ def test_calibration_agent_source_never_references_standing_permissions() -> Non
         assert "get_standing_permissions" not in method_source
         assert "apply_calibration_proposal_to_standing_permissions" not in method_source
         assert "_permissions_doc" not in method_source
+
+
+@pytest.mark.asyncio
+async def test_run_for_all_users_creates_proposals_for_qualifying_triples() -> None:
+    db = FakeFirestoreClient()
+    memory = MemoryAgent(db)
+    await _seed_approvals(memory, "u1", category="pharmacy_refill", provider="cvs-main-st", count=15)
+    await _seed_approvals(memory, "u2", category="bill_payment", provider=None, count=3)  # below threshold
+    agent = CalibrationAgent(memory)
+
+    created = await agent.run_for_all_users([
+        ("u1", "pharmacy_refill", "cvs-main-st"),
+        ("u2", "bill_payment", None),
+    ])
+
+    assert created == 1
+    pending = await memory.get_pending_calibration_proposal("u1")
+    assert pending is not None
+    assert await memory.get_pending_calibration_proposal("u2") is None
+
+
+@pytest.mark.asyncio
+async def test_run_for_all_users_does_not_duplicate_an_existing_pending_proposal() -> None:
+    db = FakeFirestoreClient()
+    memory = MemoryAgent(db)
+    await _seed_approvals(memory, "u1", category="pharmacy_refill", provider="cvs-main-st", count=15)
+    agent = CalibrationAgent(memory)
+
+    first_run = await agent.run_for_all_users([("u1", "pharmacy_refill", "cvs-main-st")])
+    second_run = await agent.run_for_all_users([("u1", "pharmacy_refill", "cvs-main-st")])
+
+    assert first_run == 1
+    assert second_run == 0  # already has a pending proposal for this triple

@@ -43,3 +43,15 @@ class CalibrationAgent:
             category=category, provider=provider,
             evidence=f"approved {len(history)}/{len(history)} times",
         )
+
+    async def run_for_all_users(self, uids_and_categories: "list[tuple[str, str, str | None]]") -> int:
+        created = 0
+        for uid, category, provider in uids_and_categories:
+            existing = await self._memory.get_pending_calibration_proposal(uid)
+            if existing is not None and existing[1].category == category and existing[1].provider == provider:
+                continue
+            proposal = await self.detect_proposal(uid, category=category, provider=provider)
+            if proposal is not None:
+                await self._memory.store_calibration_proposal(uid, proposal)
+                created += 1
+        return created

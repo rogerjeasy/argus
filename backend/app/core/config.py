@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     indoor_wayfinding_venue_id: str = ""
     indoor_wayfinding_directory_url: str = ""
 
+    #: Shared secret Cloud Scheduler sends as X-Calibration-Secret when it
+    #: invokes /internal/run-calibration. Empty means the endpoint always
+    #: rejects (fail-closed, not fail-open) — see app/api/calibration.py.
+    calibration_job_shared_secret: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:

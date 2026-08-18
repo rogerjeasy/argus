@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.calibration import router as calibration_router
 from app.api.health import router as health_router
 from app.api.webhooks import internal_router, router as webhooks_router
 from app.api.settings import router as settings_router
@@ -33,6 +34,7 @@ def create_app() -> FastAPI:
     app.include_router(twilio_media_router)
     app.include_router(webhooks_router)
     app.include_router(internal_router)
+    app.include_router(calibration_router)
     return app
 
 
