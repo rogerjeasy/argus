@@ -10,10 +10,15 @@ from app.agents.perception import PerceptionAgent
 from app.agents.planner import PlannerAgent
 from app.agents.replanning import MAX_REPLAN_ATTEMPTS, ReplanningAgent
 from app.agents.router import DomainRouterAgent
+from app.domains import DomainPlugin
+from app.domains.indoor_wayfinding.config import VenueDirectoryConfig
+from app.domains.indoor_wayfinding.directory_index import VenueDirectoryIndex
+from app.domains.indoor_wayfinding.domain import IndoorWayfindingDomain
 from app.domains.stub import FakeGroundingSource, StubDomain
 from app.models.agent_events import PerceivedGoal, SceneSignal
 from app.tests.doubles.fake_firestore import FakeFirestoreClient
 from app.tests.doubles.fake_llm_runner import FakeLlmAgentRunner
+from app.tests.fixtures.venue_directory_builders import build_directory_json
 
 
 class _FakePublisher:
@@ -40,6 +45,32 @@ def _build_orchestrator(source: FakeGroundingSource, *, planner_response: str) -
         router=DomainRouterAgent(router_runner, domains=[stub]),
         grounding_agents={"stub": grounding},
         domains={"stub": stub},
+        planner=PlannerAgent(planner_runner),
+        guardrail=GuardrailAgent(),
+        replanning=ReplanningAgent(),
+        guidance=GuidanceAgent(guidance_runner),
+        memory=MemoryAgent(db),
+        escalation=EscalationAgent(db, _FakePublisher(), LoggingNotificationSender()),
+    )
+
+
+def _build_orchestrator_for_domain(domain: DomainPlugin, *, planner_response: str) -> TaskOrchestrator:
+    """Sibling to _build_orchestrator above — that one is hardcoded to
+    StubDomain; this one takes any already-constructed domain plugin, for
+    tests that need a specific real domain's own ground()/matches()
+    behavior (e.g. IndoorWayfindingDomain's signage-only mode) rather than
+    FakeGroundingSource's settable-per-test answers."""
+    router_runner = FakeLlmAgentRunner()  # single candidate — never actually called
+    planner_runner = FakeLlmAgentRunner(next_response=planner_response)
+    guidance_runner = FakeLlmAgentRunner(next_response="Head that way.")
+
+    grounding = GroundingAgent(domain)
+    db = FakeFirestoreClient()
+    return TaskOrchestrator(
+        perception=PerceptionAgent(),
+        router=DomainRouterAgent(router_runner, domains=[domain]),
+        grounding_agents={domain.domain_id: grounding},
+        domains={domain.domain_id: domain},
         planner=PlannerAgent(planner_runner),
         guardrail=GuardrailAgent(),
         replanning=ReplanningAgent(),
@@ -613,3 +644,25 @@ async def test_resolve_confirmation_ignores_a_pending_field_request() -> None:
 
     assert result is None
     assert executor.received_payloads == []
+
+
+@pytest.mark.asyncio
+async def test_handle_scene_signal_resolves_a_signage_only_fact_via_replan() -> None:
+    # A full round trip proving BOTH grounding.ground() calls inside
+    # check_for_divergence receive scene_signal_text — see Task 7's plan
+    # notes on why threading only the replan() call is insufficient.
+    domain = IndoorWayfindingDomain(
+        VenueDirectoryConfig(venue_id="venue-a", directory_data_url=None),
+        VenueDirectoryIndex(build_directory_json({})),  # signage-only mode
+    )
+    orchestrator = _build_orchestrator_for_domain(domain, planner_response=_planner_json(category="wayfinding"))
+    goal = PerceivedGoal(session_id="s1", uid="u1", raw_text="where's the breakfast room")
+    await orchestrator.handle_goal(goal)
+
+    signal = SceneSignal(session_id="s1", kind="signage_text", text="Breakfast Room this way", confidence=0.9)
+    result = await orchestrator.handle_scene_signal(signal)
+
+    assert result is not None
+    active = orchestrator._active["s1"]
+    assert active.fact.value == "Breakfast Room this way"
+    assert active.fact.source == "signage_only"

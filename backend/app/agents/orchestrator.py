@@ -160,13 +160,17 @@ class TaskOrchestrator:
 
             return OrchestrationResult(guidance=guidance_output, guardrail=decision)
 
-    async def check_for_divergence(self, *, session_id: str, uid: str) -> OrchestrationResult | None:
+    async def check_for_divergence(
+        self, *, session_id: str, uid: str, scene_signal_text: str = ""
+    ) -> OrchestrationResult | None:
         active = self._active.get(session_id)
         if active is None:
             return None
 
         grounding = self._grounding_agents[active.domain_id]
-        new_fact = await grounding.ground(active.grounding_key, active.goal.raw_text, active.goal.uid)
+        new_fact = await grounding.ground(
+            active.grounding_key, active.goal.raw_text, active.goal.uid, scene_signal_text=scene_signal_text
+        )
         divergence = grounding.check_divergence(plan_step_id=active.step.step_id, expected=active.fact, new_fact=new_fact)
         if divergence is None:
             return None
@@ -187,7 +191,8 @@ class TaskOrchestrator:
             return OrchestrationResult(guidance=escalation_output, guardrail=denied)
 
         replanned_fact = await self._replanning.replan(
-            grounding=grounding, key=active.grounding_key, attempt=active.replan_attempts, raw_goal_text=active.goal.raw_text
+            grounding=grounding, key=active.grounding_key, attempt=active.replan_attempts,
+            raw_goal_text=active.goal.raw_text, scene_signal_text=scene_signal_text,
         )
         new_step = await self._planner.plan(active.goal, [replanned_fact], domain_id=active.domain_id)
         permissions = await self._memory.get_standing_permissions(uid)
@@ -215,8 +220,15 @@ class TaskOrchestrator:
         # The camera only ever earns the right to ask "please re-check" —
         # check_for_divergence re-queries the real feed and is the actual
         # tie-breaker (design doc §4), exactly as it already was for
-        # Phase 2a's polling-triggered divergence.
-        return await self.check_for_divergence(session_id=signal.session_id, uid=active.goal.uid)
+        # Phase 2a's polling-triggered divergence. scene_signal_text is
+        # threaded through so a signage-only domain (Phase 4a) can use the
+        # camera's own read as the re-grounded value — a real feed/
+        # directory-backed domain ignores it entirely (GroundingRequest
+        # defaults it to "" and TransitDomain/PersonalAdminDomain never
+        # read it).
+        return await self.check_for_divergence(
+            session_id=signal.session_id, uid=active.goal.uid, scene_signal_text=signal.text
+        )
 
     async def handle_document_signal(self, signal: SceneSignal) -> OrchestrationResult | None:
         active = self._active.get(signal.session_id)
