@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     #: build_orchestrator only registers FormExecutor when this is set.
     personal_admin_storage_bucket: str = ""
 
+    #: Empty defaults to a signage-only demo venue with zero configuration —
+    #: see app/domains/indoor_wayfinding/config.py.
+    indoor_wayfinding_venue_id: str = ""
+    indoor_wayfinding_directory_url: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:
