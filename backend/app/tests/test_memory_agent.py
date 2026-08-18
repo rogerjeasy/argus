@@ -192,3 +192,29 @@ async def test_apply_calibration_proposal_writes_a_standing_permission() -> None
     assert permissions[0].threshold == MIN_CONFIDENCE_FLOOR
     # applying also resolves the proposal — it must not still be "pending"
     assert await agent.get_pending_calibration_proposal("u1") is None
+
+
+@pytest.mark.asyncio
+async def test_get_user_settings_defaults_when_unset() -> None:
+    from app.models.user_settings import UserSettings
+
+    db = FakeFirestoreClient()
+    agent = MemoryAgent(db)
+
+    settings = await agent.get_user_settings("u1")
+
+    assert settings == UserSettings()
+    assert settings.audio_perception_enabled is False
+
+
+@pytest.mark.asyncio
+async def test_get_user_settings_reads_seeded_preferences() -> None:
+    db = FakeFirestoreClient()
+    db.collection("argus_users").document("u1").collection("settings").document("preferences").set(
+        {"verbosity": "terse", "pace": "normal", "audio_perception_enabled": True}
+    )
+    agent = MemoryAgent(db)
+
+    settings = await agent.get_user_settings("u1")
+
+    assert settings.audio_perception_enabled is True
