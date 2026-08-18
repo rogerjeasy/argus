@@ -853,3 +853,35 @@ async def test_resolve_confirmation_does_not_double_record_confirmation_history_
 
     history = await orch._memory.get_confirmation_history("u1", category="pharmacy_refill", provider="cvs-main-st")
     assert history == []
+
+
+@pytest.mark.asyncio
+async def test_handle_goal_with_distress_keyword_alone_still_routes_normally() -> None:
+    """One signal (spoken keyword) is never enough — the goal still gets
+    routed and answered normally, since a real actionable request
+    ("help me get to platform 4") must never be silently dropped."""
+    source = FakeGroundingSource()
+    source.set_answer("platform", "4")
+    orch = _build_orchestrator(source, planner_response=_planner_json())
+
+    goal = PerceivedGoal(session_id="s1", uid="u1", raw_text="help me get to platform 4")
+    result = await orch.handle_goal(goal)
+
+    assert result.guardrail.step_id != "distress-escalation"
+    assert "s1" in orch._active
+
+
+@pytest.mark.asyncio
+async def test_handle_goal_escalates_when_a_second_signal_already_pending() -> None:
+    source = FakeGroundingSource()
+    source.set_answer("platform", "4")
+    orch = _build_orchestrator(source, planner_response=_planner_json())
+    await orch._escalation.consider_distress_signal(
+        session_id="s1", uid="u1", signal_type="ambient_distress_sound", reason="x"
+    )
+
+    goal = PerceivedGoal(session_id="s1", uid="u1", raw_text="help me please")
+    result = await orch.handle_goal(goal)
+
+    assert result.guardrail.step_id == "distress-escalation"
+    assert "s1" not in orch._active  # short-circuited before any routing/grounding happened

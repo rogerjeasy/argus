@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 from pydantic import ValidationError
 
+from app.agents.distress import detect_distress_keywords
 from app.agents.escalation import EscalationAgent
 from app.agents.grounding import GroundingAgent
 from app.agents.guardrail import GuardrailAgent
@@ -120,7 +121,33 @@ class TaskOrchestrator:
         self._active: dict[str, _ActiveTask] = {}  # keyed by session_id
         self._pending_input: dict[str, _PendingInput] = {}  # keyed by session_id
 
+    def _distress_escalation_result(self, session_id: str) -> OrchestrationResult:
+        """Shared by handle_goal's distress-keyword check and
+        handle_ambient_sound_signal — both produce the identical "help is
+        on the way" response the moment a second corroborating signal
+        arrives, regardless of which signal was first."""
+        guidance_output = GuidanceOutput(
+            session_id=session_id,
+            text="I'm concerned and I'm getting you help now.",
+            haptic_pattern="pattern-urgent", earcon="earcon-escalation",
+        )
+        decision = GuardrailDecision(step_id="distress-escalation", decision="denied", reason="distress signals corroborated")
+        return OrchestrationResult(guidance=guidance_output, guardrail=decision)
+
     async def handle_goal(self, goal: PerceivedGoal) -> OrchestrationResult:
+        if detect_distress_keywords(goal.raw_text):
+            escalation_event = await self._escalation.consider_distress_signal(
+                session_id=goal.session_id, uid=goal.uid,
+                signal_type="spoken_distress", reason="distress keyword detected in spoken goal",
+            )
+            if escalation_event is not None:
+                return self._distress_escalation_result(goal.session_id)
+            # Only one signal so far (this keyword, no corroborating ambient
+            # signal yet) — fall through to normal goal handling below;
+            # the spoken words might also be a real, actionable goal
+            # ("help me get to platform 4"), and this system never silently
+            # drops a goal just because it also sounded concerning.
+
         pending = self._pending_input.get(goal.session_id)
         if pending is not None:
             if pending.mode == "confirm":
