@@ -329,9 +329,12 @@ class TaskOrchestrator:
 
     async def resolve_confirmation(self, session_id: str, uid: str, accepted: bool) -> OrchestrationResult | None:
         pending = self._pending_input.get(session_id)
-        if pending is None or pending.mode != "confirm":
+        if pending is None or pending.mode not in ("confirm", "calibration"):
             return None
         del self._pending_input[session_id]
+
+        if pending.mode == "calibration":
+            return await self._resolve_calibration_proposal(session_id, uid, pending.calibration_proposal_id, accepted)
 
         category = pending.step.payload.get("category", "uncategorized")
         provider = pending.step.payload.get("provider")
@@ -347,6 +350,20 @@ class TaskOrchestrator:
             return OrchestrationResult(guidance=guidance_output, guardrail=decision)
 
         return await self._execute_step(session_id, uid, pending.domain_id, pending.step)
+
+    async def _resolve_calibration_proposal(
+        self, session_id: str, uid: str, proposal_id: str, accepted: bool
+    ) -> OrchestrationResult:
+        if accepted:
+            await self._memory.apply_calibration_proposal_to_standing_permissions(uid, proposal_id)
+            text = "Done — I won't ask about that again."
+            decision = GuardrailDecision(step_id=proposal_id, decision="approved", reason="user opted in to calibration proposal")
+        else:
+            await self._memory.mark_calibration_proposal_dismissed(uid, proposal_id)
+            text = "Okay, I'll keep asking."
+            decision = GuardrailDecision(step_id=proposal_id, decision="denied", reason="user declined calibration proposal")
+        guidance_output = GuidanceOutput(session_id=session_id, text=text, haptic_pattern=None, earcon=None)
+        return OrchestrationResult(guidance=guidance_output, guardrail=decision)
 
     async def resolve_field_input(self, session_id: str, uid: str, value: str) -> OrchestrationResult | None:
         pending = self._pending_input.get(session_id)

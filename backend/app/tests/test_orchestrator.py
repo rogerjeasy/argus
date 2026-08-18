@@ -790,3 +790,66 @@ async def test_check_for_pending_calibration_proposal_returns_none_when_nothing_
     orch = _build_orchestrator(source, planner_response=_planner_json())
 
     assert await orch.check_for_pending_calibration_proposal("s1", "u1") is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_confirmation_accepted_applies_the_calibration_proposal() -> None:
+    from app.agents.calibration import CalibrationProposal
+
+    source = FakeGroundingSource()
+    source.set_answer("platform", "4")
+    orch = _build_orchestrator(source, planner_response=_planner_json())
+    proposal = CalibrationProposal(category="pharmacy_refill", provider="cvs-main-st", evidence="approved 15/15 times")
+    await orch._memory.store_calibration_proposal("u1", proposal)
+    await orch.check_for_pending_calibration_proposal("s1", "u1")
+
+    result = await orch.resolve_confirmation("s1", "u1", accepted=True)
+
+    assert result is not None
+    assert result.guardrail.decision == "approved"
+    permissions = await orch._memory.get_standing_permissions("u1")
+    assert any(p.category == "pharmacy_refill" and p.provider == "cvs-main-st" for p in permissions)
+
+
+@pytest.mark.asyncio
+async def test_resolve_confirmation_declined_dismisses_without_touching_permissions() -> None:
+    from app.agents.calibration import CalibrationProposal
+
+    source = FakeGroundingSource()
+    source.set_answer("platform", "4")
+    orch = _build_orchestrator(source, planner_response=_planner_json())
+    proposal = CalibrationProposal(category="pharmacy_refill", provider="cvs-main-st", evidence="approved 15/15 times")
+    await orch._memory.store_calibration_proposal("u1", proposal)
+    await orch.check_for_pending_calibration_proposal("s1", "u1")
+
+    result = await orch.resolve_confirmation("s1", "u1", accepted=False)
+
+    assert result is not None
+    assert result.guardrail.decision == "denied"
+    permissions = await orch._memory.get_standing_permissions("u1")
+    assert permissions == []
+    assert await orch._memory.get_pending_calibration_proposal("u1") is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_confirmation_does_not_double_record_confirmation_history_for_calibration_mode() -> None:
+    """Task 2's history-recording block only applies to real plan-step
+    confirmations (pending.step is not None) — a calibration proposal's
+    accept/decline is not itself a "confirmation outcome" about some
+    category/provider action; recording it there would corrupt the exact
+    history CalibrationAgent reads to generate proposals in the first
+    place (a proposal accepted would look identical to 15 more real
+    approvals, silently lowering the bar for the *next* proposal)."""
+    from app.agents.calibration import CalibrationProposal
+
+    source = FakeGroundingSource()
+    source.set_answer("platform", "4")
+    orch = _build_orchestrator(source, planner_response=_planner_json())
+    proposal = CalibrationProposal(category="pharmacy_refill", provider="cvs-main-st", evidence="approved 15/15 times")
+    await orch._memory.store_calibration_proposal("u1", proposal)
+    await orch.check_for_pending_calibration_proposal("s1", "u1")
+
+    await orch.resolve_confirmation("s1", "u1", accepted=True)
+
+    history = await orch._memory.get_confirmation_history("u1", category="pharmacy_refill", provider="cvs-main-st")
+    assert history == []
