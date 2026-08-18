@@ -885,3 +885,30 @@ async def test_handle_goal_escalates_when_a_second_signal_already_pending() -> N
 
     assert result.guardrail.step_id == "distress-escalation"
     assert "s1" not in orch._active  # short-circuited before any routing/grounding happened
+
+
+@pytest.mark.asyncio
+async def test_handle_ambient_sound_signal_alone_never_escalates() -> None:
+    source = FakeGroundingSource()
+    source.set_answer("platform", "4")
+    orch = _build_orchestrator(source, planner_response=_planner_json())
+
+    result = await orch.handle_ambient_sound_signal("s1", "u1", "alarm")
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_handle_ambient_sound_signal_escalates_when_a_keyword_signal_already_pending() -> None:
+    source = FakeGroundingSource()
+    source.set_answer("platform", "4")
+    orch = _build_orchestrator(source, planner_response=_planner_json())
+    await orch._escalation.consider_distress_signal(
+        session_id="s1", uid="u1", signal_type="spoken_distress", reason="x"
+    )
+
+    result = await orch.handle_ambient_sound_signal("s1", "u1", "alarm")
+
+    assert result is not None
+    assert result.guardrail.step_id == "distress-escalation"
+    assert result.guidance.haptic_pattern == "pattern-urgent"

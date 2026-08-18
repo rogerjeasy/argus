@@ -232,6 +232,15 @@ class TaskOrchestrator:
 
         return OrchestrationResult(guidance=guidance_output, guardrail=decision)
 
+    async def handle_ambient_sound_signal(self, session_id: str, uid: str, category: str) -> OrchestrationResult | None:
+        escalation_event = await self._escalation.consider_distress_signal(
+            session_id=session_id, uid=uid,
+            signal_type="ambient_distress_sound", reason=f"ambient sound classified as {category}",
+        )
+        if escalation_event is None:
+            return None
+        return self._distress_escalation_result(session_id)
+
     async def handle_scene_signal(self, signal: SceneSignal) -> OrchestrationResult | None:
         active = self._active.get(signal.session_id)
         if active is None:
