@@ -24,11 +24,15 @@ _STOP_TIMES = [{"trip_id": "IC1.TA.1", "stop_id": "8503000:4", "arrival_time": "
 
 
 class _FakePoller:
-    def __init__(self, decoded=None) -> None:
+    def __init__(self, decoded=None, alert=None) -> None:
         self._decoded = decoded
+        self._alert = alert
 
     async def latest_for(self, trip_id, candidate_stop_ids):
         return self._decoded
+
+    async def latest_alert_for(self, trip_id, candidate_stop_ids):
+        return self._alert
 
 
 def _domain(poller) -> TransitDomain:
@@ -75,3 +79,31 @@ async def test_ground_returns_low_confidence_on_feed_outage() -> None:
     )
 
     assert fact.confidence < 0.5
+
+
+@pytest.mark.asyncio
+async def test_check_disruption_returns_the_decoded_alert() -> None:
+    from datetime import datetime, timezone
+    from app.domains.transit.realtime import DecodedAlert
+
+    alert = DecodedAlert(header_text="Delays", description_text="Signal fault", fetched_at=datetime.now(timezone.utc))
+    domain = _domain(_FakePoller(alert=alert))
+
+    summary = await domain.check_disruption("get me to Zürich HB")
+
+    assert summary is not None
+    assert summary.stop_name == "Zürich HB"
+    assert summary.header_text == "Delays"
+    assert summary.description_text == "Signal fault"
+
+
+@pytest.mark.asyncio
+async def test_check_disruption_returns_none_when_stop_unresolvable() -> None:
+    domain = _domain(_FakePoller())
+    assert await domain.check_disruption("get me to Mars Station") is None
+
+
+@pytest.mark.asyncio
+async def test_check_disruption_returns_none_when_no_alert() -> None:
+    domain = _domain(_FakePoller(alert=None))
+    assert await domain.check_disruption("get me to Zürich HB") is None
