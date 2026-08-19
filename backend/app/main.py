@@ -6,6 +6,7 @@ from app.api.daily_briefing import router as daily_briefing_router
 from app.api.health import router as health_router
 from app.api.webhooks import internal_router, router as webhooks_router
 from app.api.settings import router as settings_router
+from app.api.trusted_contact import router as trusted_contact_router
 from app.api.users import router as users_router
 from app.core.config import get_settings
 from app.core.logging_config import configure_logging
@@ -30,6 +31,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(health_router)
     app.include_router(settings_router)
+    app.include_router(trusted_contact_router)
     app.include_router(users_router)
     app.include_router(ws_router)
     app.include_router(twilio_media_router)
