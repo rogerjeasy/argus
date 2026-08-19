@@ -1,4 +1,4 @@
-.PHONY: dev test deploy bootstrap backend-dev frontend-dev backend-test frontend-test check-api-drift
+.PHONY: dev test deploy bootstrap backend-dev frontend-dev backend-test frontend-test check-api-drift measure-latency
 
 GCP_REGION ?= us-central1
 
@@ -52,6 +52,9 @@ check-api-drift:
 	git diff --exit-code lib/api/schema.ts && \
 	echo "No OpenAPI drift." || \
 	(echo "OpenAPI drift detected — schema.ts is stale. Commit the regenerated file." && exit 1)
+
+measure-latency:
+	cd backend && poetry run python ../scripts/measure_latency.py --runs 20 --out ../docs/specs/2026-08-19-phase5-latency-report.json
 
 bootstrap:
 	cd infra/terraform/bootstrap && terraform init && terraform apply \
