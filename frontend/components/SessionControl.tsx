@@ -6,6 +6,7 @@ import { useSession } from "@/lib/session/useSession";
 import { Button } from "@/components/ui/button";
 import { ConfirmationPrompt } from "./ConfirmationPrompt";
 import { ConnectionStatus } from "./ConnectionStatus";
+import { DegradedConnectivityStatus } from "./DegradedConnectivityStatus";
 import { FormFieldPrompt } from "./FormFieldPrompt";
 import { FramingStatus } from "./FramingStatus";
 import { GuardrailStatus } from "./GuardrailStatus";
@@ -31,7 +32,8 @@ export function SessionControl() {
 
   const {
     status, errorMessage, captionText, guardrailDecision, framingText, confidenceLow,
-    pendingConfirmation, resolveConfirmation, pendingFieldRequest, resolveFieldInput, start, stop,
+    usingCachedGuidance, pendingConfirmation, resolveConfirmation, pendingFieldRequest,
+    resolveFieldInput, start, stop,
   } = useSession(token);
   const isActive = status === "connected" || status === "connecting";
 
@@ -51,6 +53,7 @@ export function SessionControl() {
       <ConnectionStatus status={status} />
       {guardrailDecision ? <GuardrailStatus decision={guardrailDecision} /> : null}
       <FramingStatus confidenceLow={confidenceLow} />
+      <DegradedConnectivityStatus usingCachedGuidance={usingCachedGuidance} />
       {/* Captions: what Argus actually said, shown alongside the audio —
           never color/audio alone as the only channel for a guardrail-relevant
           reply. `polite` because it updates routinely, not something the

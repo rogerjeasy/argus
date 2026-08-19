@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useSession } from "../lib/session/useSession";
+import { RECONNECT_MAX_ATTEMPTS } from "../lib/session/reconnect";
 
 // The audio graph itself is exercised against fake Web Audio APIs in
 // audio.test.ts. Here it is mocked so these tests can be about the *wiring*:
@@ -172,11 +173,11 @@ describe("useSession connection lifecycle", () => {
     expect(latestSocket().closeCalls).toBe(1);
   });
 
-  it("releases the microphone when the server closes the socket (no prior error)", async () => {
+  it("attempts to reconnect instead of tearing down when the server closes the socket cleanly", async () => {
     // The most likely real disconnect in production — Gemini dropping the
     // stream, a token expiring, a Cloud Run instance recycling — arrives as
-    // a clean onclose with no preceding onerror. A live mic indicator with
-    // no session behind it is exactly the failure this test guards against.
+    // a clean onclose with no preceding onerror. Phase 4d turns this into a
+    // reconnect attempt rather than an immediate teardown (design doc §6).
     const { result } = renderHook(() => useSession("fake-token"));
     await startAndOpen(result);
     await waitFor(() => expect(capturedOnChunk.current).not.toBeNull());
@@ -186,9 +187,11 @@ describe("useSession connection lifecycle", () => {
       socket.onclose?.();
     });
 
-    expect(result.current.status).toBe("idle");
-    expect(stopCapture).toHaveBeenCalled();
-    expect(close).toHaveBeenCalled();
+    // Reconnecting, not idle — and the mic is NOT released, since capture
+    // keeps running locally throughout the drop (see this task's plan note).
+    expect(result.current.status).toBe("reconnecting");
+    expect(stopCapture).not.toHaveBeenCalled();
+    expect(close).not.toHaveBeenCalled();
   });
 
   it("releases the microphone when the socket errors", async () => {
@@ -227,6 +230,179 @@ describe("useSession connection lifecycle", () => {
     expect(stopCapture).toHaveBeenCalled();
     expect(close).toHaveBeenCalled();
     expect(FakeWebSocket.instances).toHaveLength(2);
+  });
+});
+
+describe("useSession reconnect", () => {
+  // beforeEach/afterEach, not a bare call inside each test — a fake-timers
+  // mode left active after a test throws (any assertion failure skips
+  // whatever cleanup a test's own body hadn't reached yet) leaks into every
+  // later test in the file, hanging their real async waits indefinitely.
+  // afterEach runs regardless of how the test body exited.
+  //
+  // shouldAdvanceTime: true is required, not optional — every test here
+  // also calls testing-library's own waitFor(), whose internal polling
+  // uses a real setTimeout that plain fake timers freeze forever (nothing
+  // ever calls advanceTimersByTime for that internal timer). This hybrid
+  // mode lets real wall-clock time keep ticking fake timers forward in the
+  // background so waitFor's own polling still resolves, while this file's
+  // own explicit advanceTimersByTimeAsync calls still fast-forward the
+  // reconnect backoff deterministically on top of that.
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("schedules a new socket after a clean drop, and resets the attempt counter on success", async () => {
+    const { result } = renderHook(() => useSession("fake-token"));
+    await startAndOpen(result);
+    await waitFor(() => expect(capturedOnChunk.current).not.toBeNull());
+    const firstSocket = latestSocket();
+
+    act(() => {
+      firstSocket.onclose?.();
+    });
+    expect(result.current.status).toBe("reconnecting");
+    expect(FakeWebSocket.instances).toHaveLength(1); // not scheduled yet — waiting on backoff
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000); // first backoff delay
+    });
+    expect(FakeWebSocket.instances).toHaveLength(2);
+
+    await act(async () => {
+      latestSocket().onopen?.();
+    });
+    await waitFor(() => expect(result.current.status).toBe("connected"));
+  });
+
+  it("resumes sending mic audio on the new socket after a reconnect, without a second getUserMedia prompt", async () => {
+    const { result } = renderHook(() => useSession("fake-token"));
+    await startAndOpen(result);
+    await waitFor(() => expect(capturedOnChunk.current).not.toBeNull());
+    startMicrophoneCapture.mockClear(); // only care about calls from here on
+    const firstSocket = latestSocket();
+
+    act(() => {
+      firstSocket.onclose?.();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    await act(async () => {
+      latestSocket().onopen?.();
+    });
+    await waitFor(() => expect(result.current.status).toBe("connected"));
+
+    // Capture was never restarted — the reconnect reused the one running
+    // stream, exactly the idempotency guard this task adds.
+    expect(startMicrophoneCapture).not.toHaveBeenCalled();
+
+    act(() => {
+      capturedOnChunk.current?.(new ArrayBuffer(4));
+    });
+    expect(latestSocket().sent).toHaveLength(1); // sent on the NEW socket, not the dead one
+  });
+
+  it("gives up and fully tears down after exhausting the retry budget", async () => {
+    const { result } = renderHook(() => useSession("fake-token"));
+    await startAndOpen(result);
+    await waitFor(() => expect(capturedOnChunk.current).not.toBeNull());
+
+    // Off-by-one worth tracing carefully: with reconnectAttemptRef starting
+    // at 0 and the guard being `< RECONNECT_MAX_ATTEMPTS`, exactly
+    // RECONNECT_MAX_ATTEMPTS onclose events each individually pass the
+    // check and schedule *another* attempt — the counter only reaches
+    // RECONNECT_MAX_ATTEMPTS after that many successful schedules, and the
+    // fallback only fires on the *next* (RECONNECT_MAX_ATTEMPTS + 1th)
+    // onclose. Importing the real constant (not a hardcoded literal) keeps
+    // this loop bound from silently drifting out of sync with Task 1's.
+    for (let i = 0; i < RECONNECT_MAX_ATTEMPTS + 1; i++) {
+      const socket = latestSocket();
+      act(() => {
+        socket.onclose?.();
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000); // comfortably past any backoff delay
+      });
+    }
+
+    expect(result.current.status).toBe("idle");
+    expect(stopCapture).toHaveBeenCalled();
+    expect(close).toHaveBeenCalled();
+  });
+
+  it("a deliberate stop() during reconnecting does not schedule another attempt", async () => {
+    const { result } = renderHook(() => useSession("fake-token"));
+    await startAndOpen(result);
+    await waitFor(() => expect(capturedOnChunk.current).not.toBeNull());
+    const socket = latestSocket();
+
+    act(() => {
+      socket.onclose?.();
+    });
+    expect(result.current.status).toBe("reconnecting");
+
+    act(() => {
+      result.current.stop();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+
+    expect(result.current.status).toBe("idle");
+    expect(FakeWebSocket.instances).toHaveLength(1); // no reconnect socket was ever opened
+  });
+
+  it("replays cached guidance while reconnecting, and clears the flag once fresh guidance arrives", async () => {
+    const { result } = renderHook(() => useSession("fake-token"));
+    await startAndOpen(result);
+    await waitFor(() => expect(capturedOnChunk.current).not.toBeNull());
+
+    // A real guidance frame arrives and gets cached, before the drop.
+    act(() => {
+      latestSocket().onmessage?.({
+        data: JSON.stringify({
+          type: "guidance", text: "Head to platform 4.", haptic_pattern: null, earcon: null,
+          guardrail_decision: "approved", step_id: "step-1",
+        }),
+      } as MessageEvent);
+    });
+    expect(result.current.captionText).toBe("Head to platform 4.");
+    expect(result.current.usingCachedGuidance).toBe(false);
+
+    act(() => {
+      latestSocket().onclose?.();
+    });
+
+    // Reconnecting: the same text is still shown, now flagged as cached.
+    expect(result.current.status).toBe("reconnecting");
+    expect(result.current.captionText).toBe("Head to platform 4.");
+    expect(result.current.usingCachedGuidance).toBe(true);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    await act(async () => {
+      latestSocket().onopen?.();
+    });
+    await waitFor(() => expect(result.current.status).toBe("connected"));
+    // Reconnected, but no fresh guidance has arrived yet — still flagged.
+    expect(result.current.usingCachedGuidance).toBe(true);
+
+    act(() => {
+      latestSocket().onmessage?.({
+        data: JSON.stringify({
+          type: "guidance", text: "Refill confirmed.", haptic_pattern: null, earcon: null,
+          guardrail_decision: "approved", step_id: "step-2",
+        }),
+      } as MessageEvent);
+    });
+
+    expect(result.current.captionText).toBe("Refill confirmed.");
+    expect(result.current.usingCachedGuidance).toBe(false);
   });
 });
 
