@@ -6,6 +6,7 @@ import {
   PLAYBACK_SAMPLE_RATE,
   PcmPlayer,
   describeMicrophoneError,
+  floatRmsLevel,
   floatTo16BitPcm,
   pcm16ToFloat32,
   startMicrophoneCapture,
@@ -168,6 +169,26 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe("floatRmsLevel", () => {
+  it("returns 0 for silence", () => {
+    expect(floatRmsLevel(new Float32Array([0, 0, 0, 0]))).toBe(0);
+  });
+
+  it("returns a higher level for louder samples", () => {
+    const quiet = floatRmsLevel(new Float32Array([0.05, -0.05, 0.05, -0.05]));
+    const loud = floatRmsLevel(new Float32Array([0.5, -0.5, 0.5, -0.5]));
+    expect(loud).toBeGreaterThan(quiet);
+  });
+
+  it("clamps to 1 instead of exceeding it", () => {
+    expect(floatRmsLevel(new Float32Array([1, -1, 1, -1]))).toBe(1);
+  });
+
+  it("returns 0 for an empty buffer", () => {
+    expect(floatRmsLevel(new Float32Array([]))).toBe(0);
+  });
+});
+
 describe("PCM conversion", () => {
   it("round-trips samples through 16-bit PCM within quantisation error", () => {
     const original = new Float32Array([0, 0.5, -0.5, 0.999, -0.999]);
@@ -266,6 +287,20 @@ describe("startMicrophoneCapture", () => {
     expect(chunks).toHaveLength(0);
   });
 
+  it("reports a level alongside each captured chunk when onLevel is given", async () => {
+    const levels: number[] = [];
+    await startMicrophoneCapture(() => {}, (level) => levels.push(level));
+
+    FakeAudioContext.instances[0].processors[0].emit(new Float32Array([0.5, -0.5, 0.5, -0.5]));
+
+    expect(levels).toHaveLength(1);
+    expect(levels[0]).toBeGreaterThan(0);
+  });
+
+  it("works without an onLevel callback", async () => {
+    await expect(startMicrophoneCapture(() => {})).resolves.toBeDefined();
+  });
+
   it("propagates a permission rejection to the caller", async () => {
     const denied = Object.assign(new Error("Permission denied"), {
       name: "NotAllowedError",
@@ -362,6 +397,16 @@ describe("PcmPlayer", () => {
   it("ignores empty chunks without creating a context", () => {
     new PcmPlayer().play(new ArrayBuffer(0));
     expect(FakeAudioContext.instances).toHaveLength(0);
+  });
+
+  it("reports a level for each played chunk when onLevel is given", () => {
+    const levels: number[] = [];
+    const player = new PcmPlayer((level) => levels.push(level));
+
+    player.play(floatTo16BitPcm(new Float32Array([0.5, -0.5, 0.5, -0.5])));
+
+    expect(levels).toHaveLength(1);
+    expect(levels[0]).toBeGreaterThan(0);
   });
 
   it("closes the context and restarts scheduling on close()", () => {

@@ -77,6 +77,22 @@ export function pcm16ToFloat32(buffer: ArrayBuffer): Float32Array {
   return output;
 }
 
+/**
+ * Root-mean-square amplitude of a block of samples, scaled up and clamped
+ * to 0..1 for a visually responsive level. Typical speech RMS sits well
+ * below full-scale, so a flat gain multiplier is applied before clamping —
+ * this is a UI-pulse driver, not a calibrated loudness measurement.
+ */
+export function floatRmsLevel(samples: Float32Array, gain = 4): number {
+  if (samples.length === 0) return 0;
+  let sumSquares = 0;
+  for (let i = 0; i < samples.length; i += 1) {
+    sumSquares += samples[i] * samples[i];
+  }
+  const rms = Math.sqrt(sumSquares / samples.length);
+  return Math.min(1, rms * gain);
+}
+
 /** Turn a `getUserMedia` rejection into something worth saying out loud. */
 export function describeMicrophoneError(error: unknown): string {
   const name = (error as { name?: string } | undefined)?.name;
@@ -117,7 +133,8 @@ export interface MicrophoneCapture {
  * the main thread.
  */
 export async function startMicrophoneCapture(
-  onChunk: (chunk: ArrayBuffer) => void
+  onChunk: (chunk: ArrayBuffer) => void,
+  onLevel?: (level: number) => void
 ): Promise<MicrophoneCapture> {
   if (!navigator?.mediaDevices?.getUserMedia) {
     throw new Error("This browser does not support microphone capture.");
@@ -145,7 +162,9 @@ export async function startMicrophoneCapture(
     const processor = context.createScriptProcessor(CAPTURE_BUFFER_SIZE, 1, 1);
 
     processor.onaudioprocess = (event: AudioProcessingEvent) => {
-      onChunk(floatTo16BitPcm(event.inputBuffer.getChannelData(0)));
+      const samples = event.inputBuffer.getChannelData(0);
+      onLevel?.(floatRmsLevel(samples));
+      onChunk(floatTo16BitPcm(samples));
     };
 
     // A ScriptProcessorNode only runs while connected to a destination, but
@@ -194,6 +213,8 @@ export class PcmPlayer {
   private context: AudioContext | null = null;
   private nextStartTime = 0;
 
+  constructor(private readonly onLevel?: (level: number) => void) {}
+
   private ensureContext(): AudioContext {
     if (!this.context) {
       const AudioContextCtor = resolveAudioContextConstructor();
@@ -212,6 +233,7 @@ export class PcmPlayer {
   play(chunk: ArrayBuffer): void {
     const samples = pcm16ToFloat32(chunk);
     if (samples.length === 0) return;
+    this.onLevel?.(floatRmsLevel(samples));
 
     const context = this.ensureContext();
     const buffer = context.createBuffer(1, samples.length, PLAYBACK_SAMPLE_RATE);
