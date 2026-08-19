@@ -35,6 +35,11 @@ class ProviderContact(BaseModel):
     category: str
 
 
+class RegularRoute(BaseModel):
+    domain_id: str
+    goal_text: str
+
+
 class PersonalAdminProfile(BaseModel):
     known_providers: list[ProviderContact] = []
     standing_payment_threshold_cents: int | None = None
@@ -73,11 +78,27 @@ class MemoryAgent:
     def _settings_doc(self, uid: str):
         return self._db.collection("argus_users").document(uid).collection("settings").document("preferences")
 
+    def _regular_routes_doc(self, uid: str):
+        return self._db.collection("argus_users").document(uid).collection("transit").document("regular_routes")
+
     async def get_user_settings(self, uid: str) -> UserSettings:
         snapshot = await run_in_threadpool(self._settings_doc(uid).get)
         if not snapshot.exists:
             return UserSettings()
         return UserSettings(**snapshot.to_dict())
+
+    async def get_regular_routes(self, uid: str) -> list[RegularRoute]:
+        snapshot = await run_in_threadpool(self._regular_routes_doc(uid).get)
+        if not snapshot.exists:
+            return []
+        return [RegularRoute(**r) for r in snapshot.to_dict().get("routes", [])]
+
+    async def add_regular_route(self, uid: str, route: RegularRoute) -> None:
+        existing = await self.get_regular_routes(uid)
+        updated = [*existing, route]
+        await run_in_threadpool(
+            self._regular_routes_doc(uid).set, {"routes": [r.model_dump() for r in updated]}
+        )
 
     def _confirmation_history_collection(self, uid: str):
         return self._db.collection("argus_users").document(uid).collection("confirmation_history")

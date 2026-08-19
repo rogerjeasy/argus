@@ -218,3 +218,36 @@ async def test_get_user_settings_reads_seeded_preferences() -> None:
     settings = await agent.get_user_settings("u1")
 
     assert settings.audio_perception_enabled is True
+
+
+@pytest.mark.asyncio
+async def test_get_regular_routes_defaults_to_empty() -> None:
+    agent = MemoryAgent(FakeFirestoreClient())
+    assert await agent.get_regular_routes("u1") == []
+
+
+@pytest.mark.asyncio
+async def test_add_regular_route_then_get_regular_routes_round_trips() -> None:
+    from app.agents.memory import RegularRoute
+
+    agent = MemoryAgent(FakeFirestoreClient())
+    route = RegularRoute(domain_id="transit-ch", goal_text="get me to Zürich HB")
+
+    await agent.add_regular_route("u1", route)
+    routes = await agent.get_regular_routes("u1")
+
+    assert routes == [route]
+
+
+@pytest.mark.asyncio
+async def test_add_regular_route_appends_to_existing_routes() -> None:
+    from app.agents.memory import RegularRoute
+
+    agent = MemoryAgent(FakeFirestoreClient())
+    await agent.add_regular_route("u1", RegularRoute(domain_id="transit-ch", goal_text="get me to Zürich HB"))
+    await agent.add_regular_route("u1", RegularRoute(domain_id="transit-mbta", goal_text="get me to North Station"))
+
+    routes = await agent.get_regular_routes("u1")
+
+    assert len(routes) == 2
+    assert routes[1].domain_id == "transit-mbta"
