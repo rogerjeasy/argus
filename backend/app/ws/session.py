@@ -319,6 +319,10 @@ async def session_endpoint(
             extra={"session_id": session_id, "uid": user.uid},
         )
 
+        initial_daily_briefing = await orchestrator.check_for_pending_daily_briefing(session_id, user.uid)
+        if initial_daily_briefing is not None:
+            await _speak_and_send_guidance(initial_daily_briefing)
+
         initial_calibration_offer = await orchestrator.check_for_pending_calibration_proposal(session_id, user.uid)
         if initial_calibration_offer is not None:
             await _speak_and_send_guidance(initial_calibration_offer)

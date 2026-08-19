@@ -227,6 +227,9 @@ class _FakeOrchestrator:
     async def check_for_pending_calibration_proposal(self, session_id, uid):
         return None
 
+    async def check_for_pending_daily_briefing(self, session_id, uid):
+        return None
+
     async def handle_ambient_sound_signal(self, session_id, uid, category):
         return None
 
@@ -335,6 +338,9 @@ class _FakeOrchestratorWithConfirmation:
     async def check_for_pending_calibration_proposal(self, session_id, uid):
         return None
 
+    async def check_for_pending_daily_briefing(self, session_id, uid):
+        return None
+
     async def handle_ambient_sound_signal(self, session_id, uid, category):
         return None
 
@@ -380,6 +386,9 @@ class _FakeOrchestratorWithFieldRequest:
         return _FakeOrchestratorResult("Got it, one more thing to confirm.", "requires_confirmation")
 
     async def check_for_pending_calibration_proposal(self, session_id, uid):
+        return None
+
+    async def check_for_pending_daily_briefing(self, session_id, uid):
         return None
 
     async def handle_ambient_sound_signal(self, session_id, uid, category):
@@ -489,6 +498,9 @@ class _FakeOrchestratorWithCalibrationProposal:
             "I've noticed a pattern — want me to stop asking?", "requires_confirmation"
         )
 
+    async def check_for_pending_daily_briefing(self, session_id, uid):
+        return None
+
     async def handle_ambient_sound_signal(self, session_id, uid, category):
         return None
 
@@ -525,6 +537,9 @@ class _FakeAudioPerceptionOrchestrator:
         return _FakeOrchestratorResult("Head to platform 4.", "requires_confirmation")
 
     async def check_for_pending_calibration_proposal(self, session_id, uid):
+        return None
+
+    async def check_for_pending_daily_briefing(self, session_id, uid):
         return None
 
     async def handle_ambient_sound_signal(self, session_id, uid, category):
@@ -586,3 +601,45 @@ def test_audio_perception_never_runs_when_disabled(monkeypatch) -> None:
         websocket.receive_bytes()
 
     assert fake_orchestrator.ambient_calls == []
+
+
+class _FakeOrchestratorWithDailyBriefing:
+    def __init__(self) -> None:
+        self.checked_calls: list[tuple[str, str]] = []
+
+    async def handle_goal(self, goal):
+        return _FakeOrchestratorResult("Head to platform 4.", "requires_confirmation")
+
+    async def check_for_pending_calibration_proposal(self, session_id, uid):
+        return None
+
+    async def check_for_pending_daily_briefing(self, session_id, uid):
+        self.checked_calls.append((session_id, uid))
+        return _FakeOrchestratorResult("Heads up — there's a delay on your usual train.", "approved")
+
+    async def handle_ambient_sound_signal(self, session_id, uid, category):
+        return None
+
+
+def test_session_connect_speaks_a_pending_daily_briefing_first(monkeypatch) -> None:
+    import json
+
+    fake_db = FakeFirestoreClient()
+    stub_bridge = _StubBridgeWithTranscript()
+    fake_orchestrator = _FakeOrchestratorWithDailyBriefing()
+
+    app.dependency_overrides[get_firestore_client] = lambda: fake_db
+    app.dependency_overrides[get_bridge_factory] = lambda: (lambda settings: stub_bridge)
+    monkeypatch.setattr("app.ws.session.verify_id_token_string", _authenticated_as("user-1"))
+    _mock_build_orchestrator(monkeypatch, fake_orchestrator)
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws/session?token=valid-token") as websocket:
+        frame = json.loads(websocket.receive_text())
+
+    assert len(fake_orchestrator.checked_calls) == 1
+    _, uid = fake_orchestrator.checked_calls[0]
+    assert uid == "user-1"
+    assert frame["type"] == "guidance"
+    assert "delay" in frame["text"]
+    assert stub_bridge.spoken == ["Heads up — there's a delay on your usual train."]
