@@ -2,11 +2,14 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Protocol
+from xml.sax.saxutils import escape as xml_escape
 
 from google.cloud import firestore
 from starlette.concurrency import run_in_threadpool
 
+from app.agents.memory import MemoryAgent
 from app.core.pubsub import events_topic_path
+from app.integrations.twilio_client import TwilioClient
 from app.models.agent_events import EscalationEvent
 
 logger = logging.getLogger(__name__)
@@ -33,6 +36,53 @@ class LoggingNotificationSender:
         logger.warning(
             "escalation_triggered",
             extra={"session_id": event.session_id, "uid": event.uid, "reason": event.reason, "signals": event.signals},
+        )
+
+
+class RealNotificationSender:
+    """The genuine Twilio-backed NotificationSender — sends a real SMS and
+    places a real notification call to the user's configured trusted
+    contact. Not a mock; swappable so tests use FakeTwilioClient instead
+    (same pattern RealTwilioClient/RealStorageClient/RealTranslationClient
+    already established). When no trusted contact is configured, this
+    degrades exactly like LoggingNotificationSender — logs, does not
+    crash, makes zero real Twilio calls — the same graceful-degradation
+    posture every other optional integration in this project takes (no
+    KMS key -> plaintext, no storage bucket -> FormExecutor unregistered).
+
+    Deliberately does not reuse the Personal Admin call-status webhook or
+    CallSessionRegistry — this is a fire-and-forget "speak one message and
+    hang up" call with no IVR menu to navigate and no outcome to track,
+    unlike a Call Agent call. place_call's status_callback_url is left
+    unset (None) accordingly."""
+
+    def __init__(self, twilio: TwilioClient, memory: MemoryAgent, *, from_number: str) -> None:
+        self._twilio = twilio
+        self._memory = memory
+        self._from_number = from_number
+
+    async def send(self, event: EscalationEvent) -> None:
+        contact = await self._memory.get_trusted_contact(event.uid)
+        if contact is None:
+            logger.warning(
+                "escalation_no_trusted_contact_configured",
+                extra={"session_id": event.session_id, "uid": event.uid, "reason": event.reason},
+            )
+            return
+
+        message = (
+            f"Argus alert: someone using Argus may need help. Reason: {event.reason}. "
+            "This is an automated safety alert."
+        )
+        sms_sid = await self._twilio.send_sms(to=contact.phone_number, from_=self._from_number, body=message)
+        twiml = f"<Response><Say>{xml_escape(message)}</Say></Response>"
+        call_sid = await self._twilio.place_call(to=contact.phone_number, from_=self._from_number, twiml=twiml)
+        logger.warning(
+            "escalation_trusted_contact_notified",
+            extra={
+                "session_id": event.session_id, "uid": event.uid, "reason": event.reason,
+                "sms_sid": sms_sid, "call_sid": call_sid,
+            },
         )
 
 
