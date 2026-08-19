@@ -8,7 +8,7 @@ from app.core.auth import AuthenticatedUser
 from app.core.clients import get_firestore_client
 from app.main import app
 from app.tests.doubles.fake_firestore import FakeFirestoreClient
-from app.ws.session import get_bridge_factory, get_translation_client_factory
+from app.ws.session import get_bridge_factory, get_frame_prefilter_factory, get_translation_client_factory
 
 
 class _StubBridge:
@@ -348,6 +348,70 @@ def test_ws_session_dispatches_prefixed_audio_and_video_frames(monkeypatch) -> N
         websocket.receive_bytes()
 
     assert stub_bridge.sent == [b"mic-audio"]
+    assert stub_bridge.video_sent == [b"jpeg-frame"]
+
+
+def test_video_frame_reaches_bridge_when_prefilter_passes(monkeypatch) -> None:
+    fake_db = FakeFirestoreClient()
+    stub_bridge = _StubBridge()
+
+    class _AlwaysPassFilter:
+        async def has_readable_text(self, frame: bytes) -> bool:
+            return True
+
+    app.dependency_overrides[get_firestore_client] = lambda: fake_db
+    app.dependency_overrides[get_bridge_factory] = lambda: (lambda settings: stub_bridge)
+    app.dependency_overrides[get_frame_prefilter_factory] = lambda: (lambda settings: _AlwaysPassFilter())
+    monkeypatch.setattr("app.ws.session.verify_id_token_string", _authenticated_as("user-1"))
+    _mock_build_orchestrator(monkeypatch)
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws/session?token=valid-token") as websocket:
+        websocket.send_bytes(bytes([2]) + b"jpeg-frame")
+        websocket.receive_bytes()
+
+    assert stub_bridge.video_sent == [b"jpeg-frame"]
+
+
+def test_video_frame_never_reaches_bridge_when_prefilter_rejects(monkeypatch) -> None:
+    fake_db = FakeFirestoreClient()
+    stub_bridge = _StubBridge()
+
+    class _AlwaysRejectFilter:
+        async def has_readable_text(self, frame: bytes) -> bool:
+            return False
+
+    app.dependency_overrides[get_firestore_client] = lambda: fake_db
+    app.dependency_overrides[get_bridge_factory] = lambda: (lambda settings: stub_bridge)
+    app.dependency_overrides[get_frame_prefilter_factory] = lambda: (lambda settings: _AlwaysRejectFilter())
+    monkeypatch.setattr("app.ws.session.verify_id_token_string", _authenticated_as("user-1"))
+    _mock_build_orchestrator(monkeypatch)
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws/session?token=valid-token") as websocket:
+        websocket.send_bytes(bytes([2]) + b"jpeg-frame")
+        websocket.receive_bytes()
+
+    assert stub_bridge.video_sent == []
+
+
+def test_default_prefilter_passes_every_frame_through(monkeypatch) -> None:
+    """The honest default (_PassthroughFramePreFilter) must not change any
+    existing behavior — every current test that sends a video frame and
+    expects it in video_sent must keep passing unmodified."""
+    fake_db = FakeFirestoreClient()
+    stub_bridge = _StubBridge()
+
+    app.dependency_overrides[get_firestore_client] = lambda: fake_db
+    app.dependency_overrides[get_bridge_factory] = lambda: (lambda settings: stub_bridge)
+    monkeypatch.setattr("app.ws.session.verify_id_token_string", _authenticated_as("user-1"))
+    _mock_build_orchestrator(monkeypatch)
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws/session?token=valid-token") as websocket:
+        websocket.send_bytes(bytes([2]) + b"jpeg-frame")
+        websocket.receive_bytes()
+
     assert stub_bridge.video_sent == [b"jpeg-frame"]
 
 

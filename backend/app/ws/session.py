@@ -3,7 +3,7 @@ import json
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Callable
+from typing import Callable, Protocol
 
 import anyio
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, status
@@ -76,6 +76,26 @@ def get_audio_classifier_factory() -> Callable[[Settings], AudioClassifier]:
 
 def get_translation_client_factory() -> Callable[[Settings], TranslationClient]:
     return lambda settings: _PassthroughTranslationClient()
+
+
+class FramePreFilter(Protocol):
+    async def has_readable_text(self, frame: bytes) -> bool: ...
+
+
+class _PassthroughFramePreFilter:
+    """The honest default until a real Gemma-backed pre-filter is wired in
+    (pre-demo checklist) — always reports "yes, forward it," so every frame
+    reaches Gemini Live exactly as it did before this gate existed, same
+    convention as _NoOpAudioClassifier and _PassthroughTranslationClient.
+    Design doc §7's "genuine latency/battery/cost win" only exists once the
+    real classifier is swapped in via get_frame_prefilter_factory."""
+
+    async def has_readable_text(self, frame: bytes) -> bool:
+        return True
+
+
+def get_frame_prefilter_factory() -> Callable[[Settings], FramePreFilter]:
+    return lambda settings: _PassthroughFramePreFilter()
 
 
 #: Classify roughly every Nth audio chunk, not every one — cost-tiering,
@@ -187,6 +207,7 @@ async def session_endpoint(
     bridge_factory: Callable[[Settings], GeminiLiveBridge] = Depends(get_bridge_factory),
     audio_classifier_factory: Callable[[Settings], AudioClassifier] = Depends(get_audio_classifier_factory),
     translation_client_factory: Callable[[Settings], TranslationClient] = Depends(get_translation_client_factory),
+    frame_prefilter_factory: Callable[[Settings], FramePreFilter] = Depends(get_frame_prefilter_factory),
 ) -> None:
     try:
         user = await run_in_threadpool(_authenticate, websocket)
@@ -227,6 +248,8 @@ async def session_endpoint(
         )
         audio_chunk_counter = 0
         translation_client = translation_client_factory(settings)
+        frame_prefilter = frame_prefilter_factory(settings)
+        frames_filtered_by_prefilter = 0
 
         async def _speak_and_send_guidance(result) -> None:
             text = result.guidance.text
@@ -345,7 +368,7 @@ async def session_endpoint(
                 await websocket.send_bytes(chunk)
 
         async def relay_from_client() -> None:
-            nonlocal audio_chunk_counter
+            nonlocal audio_chunk_counter, frames_filtered_by_prefilter
             first_frame_logged = False
             while True:
                 message = await websocket.receive()
@@ -382,7 +405,10 @@ async def session_endpoint(
                                 if ambient_result is not None:
                                     await _speak_and_send_guidance(ambient_result)
                 elif frame_type == FRAME_TYPE_VIDEO:
-                    await bridge.send_video_frame(payload)
+                    if await frame_prefilter.has_readable_text(payload):
+                        await bridge.send_video_frame(payload)
+                    else:
+                        frames_filtered_by_prefilter += 1
                 else:
                     logger.warning(
                         "ws_session_unknown_frame_type",
@@ -438,7 +464,10 @@ async def session_endpoint(
                 )
             logger.info(
                 "ws_session_disconnected",
-                extra={"session_id": session_id, "uid": user.uid, "status": final_status},
+                extra={
+                    "session_id": session_id, "uid": user.uid, "status": final_status,
+                    "frames_filtered_by_prefilter": frames_filtered_by_prefilter,
+                },
             )
             await bridge.close()
             close_code = (
