@@ -39,6 +39,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/trusted-contact": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Trusted Contact */
+        get: operations["get_trusted_contact_api_trusted_contact_get"];
+        /** Put Trusted Contact */
+        put: operations["put_trusted_contact_api_trusted_contact_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/users/me": {
         parameters: {
             query?: never;
@@ -138,6 +156,13 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** TrustedContact */
+        TrustedContact: {
+            /** Name */
+            name: string;
+            /** Phone Number */
+            phone_number: string;
         };
         /** UserProfile */
         UserProfile: {
@@ -287,6 +312,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserSettings"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_trusted_contact_api_trusted_contact_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrustedContact"] | null;
+                };
+            };
+        };
+    };
+    put_trusted_contact_api_trusted_contact_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrustedContact"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrustedContact"];
                 };
             };
             /** @description Validation Error */
