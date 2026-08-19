@@ -36,6 +36,7 @@ from app.domains.personal_admin.domain import PersonalAdminDomain
 from app.domains.personal_admin.form_executor import FormExecutor
 from app.domains.transit.registry import get_transit_domains
 from app.integrations.storage_client import RealStorageClient
+from app.integrations.translation_client import TranslationClient, _PassthroughTranslationClient
 from app.integrations.twilio_client import RealTwilioClient
 from app.models.agent_events import PerceivedGoal
 from app.ws.gemini_bridge import GeminiLiveBridge
@@ -71,6 +72,10 @@ class _NoOpAudioClassifier:
 
 def get_audio_classifier_factory() -> Callable[[Settings], AudioClassifier]:
     return lambda settings: _NoOpAudioClassifier()
+
+
+def get_translation_client_factory() -> Callable[[Settings], TranslationClient]:
+    return lambda settings: _PassthroughTranslationClient()
 
 
 #: Classify roughly every Nth audio chunk, not every one — cost-tiering,
@@ -181,6 +186,7 @@ async def session_endpoint(
     settings: Settings = Depends(get_settings),
     bridge_factory: Callable[[Settings], GeminiLiveBridge] = Depends(get_bridge_factory),
     audio_classifier_factory: Callable[[Settings], AudioClassifier] = Depends(get_audio_classifier_factory),
+    translation_client_factory: Callable[[Settings], TranslationClient] = Depends(get_translation_client_factory),
 ) -> None:
     try:
         user = await run_in_threadpool(_authenticate, websocket)
@@ -220,17 +226,22 @@ async def session_endpoint(
             else None
         )
         audio_chunk_counter = 0
+        translation_client = translation_client_factory(settings)
 
         async def _speak_and_send_guidance(result) -> None:
-            await bridge.speak(result.guidance.text)
+            text = result.guidance.text
+            if user_settings.language_preference != "en":
+                text = await translation_client.translate(text, user_settings.language_preference)
+            await bridge.speak(text)
             if websocket.application_state == WebSocketState.CONNECTED:
                 await websocket.send_text(json.dumps({
                     "type": "guidance",
-                    "text": result.guidance.text,
+                    "text": text,
                     "haptic_pattern": result.guidance.haptic_pattern,
                     "earcon": result.guidance.earcon,
                     "guardrail_decision": result.guardrail.decision,
                     "step_id": result.guardrail.step_id,
+                    "language": user_settings.language_preference,
                 }))
 
         async def _handle_transcript(text: str) -> None:

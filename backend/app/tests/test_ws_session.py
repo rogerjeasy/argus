@@ -8,7 +8,7 @@ from app.core.auth import AuthenticatedUser
 from app.core.clients import get_firestore_client
 from app.main import app
 from app.tests.doubles.fake_firestore import FakeFirestoreClient
-from app.ws.session import get_bridge_factory
+from app.ws.session import get_bridge_factory, get_translation_client_factory
 
 
 class _StubBridge:
@@ -263,6 +263,73 @@ def test_ws_session_sends_a_guidance_frame_after_a_finished_transcript(monkeypat
     assert payload["text"] == "Head to platform 4."
     assert payload["guardrail_decision"] == "requires_confirmation"
     assert stub_bridge.spoken == ["Head to platform 4."]
+
+
+def test_ws_session_guidance_frame_defaults_to_english_and_never_translates(monkeypatch) -> None:
+    import json
+
+    fake_db = FakeFirestoreClient()
+    stub_bridge = _StubBridgeWithTranscript()
+
+    class _CountingTranslationClient:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str]] = []
+
+        async def translate(self, text: str, target_language: str) -> str:
+            self.calls.append((text, target_language))
+            return f"[{target_language}] {text}"
+
+    counting_client = _CountingTranslationClient()
+    app.dependency_overrides[get_firestore_client] = lambda: fake_db
+    app.dependency_overrides[get_bridge_factory] = lambda: (lambda settings: stub_bridge)
+    app.dependency_overrides[get_translation_client_factory] = lambda: (lambda settings: counting_client)
+    monkeypatch.setattr("app.ws.session.verify_id_token_string", _authenticated_as("user-1"))
+    _mock_build_orchestrator(monkeypatch, _FakeOrchestrator())
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws/session?token=valid-token") as websocket:
+        websocket.receive_bytes()
+        import asyncio
+
+        asyncio.run(stub_bridge.on_input_transcript("get me to platform 4"))
+        frame = json.loads(websocket.receive_text())
+
+    assert counting_client.calls == []
+    assert frame["language"] == "en"
+    assert frame["text"] == "Head to platform 4."
+
+
+def test_ws_session_translates_guidance_and_tags_language_when_preference_set(monkeypatch) -> None:
+    import json
+
+    fake_db = FakeFirestoreClient()
+    stub_bridge = _StubBridgeWithTranscript()
+
+    class _FakeTranslationClient:
+        async def translate(self, text: str, target_language: str) -> str:
+            assert target_language == "ar"
+            return f"[ar] {text}"
+
+    app.dependency_overrides[get_firestore_client] = lambda: fake_db
+    app.dependency_overrides[get_bridge_factory] = lambda: (lambda settings: stub_bridge)
+    app.dependency_overrides[get_translation_client_factory] = lambda: (lambda settings: _FakeTranslationClient())
+    monkeypatch.setattr("app.ws.session.verify_id_token_string", _authenticated_as("user-1"))
+    fake_db.collection("argus_users").document("user-1").collection("settings").document("preferences").set(
+        {"language_preference": "ar"}
+    )
+    _mock_build_orchestrator(monkeypatch, _FakeOrchestrator())
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws/session?token=valid-token") as websocket:
+        websocket.receive_bytes()
+        import asyncio
+
+        asyncio.run(stub_bridge.on_input_transcript("get me to platform 4"))
+        frame = json.loads(websocket.receive_text())
+
+    assert frame["language"] == "ar"
+    assert frame["text"] == "[ar] Head to platform 4."
+    assert stub_bridge.spoken == ["[ar] Head to platform 4."]
 
 
 def test_ws_session_dispatches_prefixed_audio_and_video_frames(monkeypatch) -> None:
