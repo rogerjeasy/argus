@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from app.core.config import get_settings
+from app.models.trusted_contact import TrustedContact
 from app.models.user_settings import UserSettings
 
 if TYPE_CHECKING:
@@ -87,6 +88,9 @@ class MemoryAgent:
     def _regular_routes_doc(self, uid: str):
         return self._db.collection("argus_users").document(uid).collection("transit").document("regular_routes")
 
+    def _trusted_contact_doc(self, uid: str):
+        return self._db.collection("argus_users").document(uid).collection("escalation").document("trusted_contact")
+
     async def get_user_settings(self, uid: str) -> UserSettings:
         snapshot = await run_in_threadpool(self._settings_doc(uid).get)
         if not snapshot.exists:
@@ -105,6 +109,15 @@ class MemoryAgent:
         await run_in_threadpool(
             self._regular_routes_doc(uid).set, {"routes": [r.model_dump() for r in updated]}
         )
+
+    async def get_trusted_contact(self, uid: str) -> TrustedContact | None:
+        snapshot = await run_in_threadpool(self._trusted_contact_doc(uid).get)
+        if not snapshot.exists:
+            return None
+        return TrustedContact(**snapshot.to_dict())
+
+    async def set_trusted_contact(self, uid: str, contact: TrustedContact) -> None:
+        await run_in_threadpool(self._trusted_contact_doc(uid).set, contact.model_dump())
 
     async def store_daily_briefing(self, uid: str, briefing: "DailyBriefing") -> str:
         import uuid

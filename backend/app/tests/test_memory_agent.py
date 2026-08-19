@@ -1,7 +1,27 @@
 import pytest
 
 from app.agents.memory import MemoryAgent, StandingPermission
+from app.models.trusted_contact import TrustedContact
 from app.tests.doubles.fake_firestore import FakeFirestoreClient
+
+
+@pytest.mark.asyncio
+async def test_get_trusted_contact_returns_none_when_unset() -> None:
+    agent = MemoryAgent(FakeFirestoreClient())
+
+    contact = await agent.get_trusted_contact("user-1")
+
+    assert contact is None
+
+
+@pytest.mark.asyncio
+async def test_set_then_get_trusted_contact_round_trips() -> None:
+    agent = MemoryAgent(FakeFirestoreClient())
+
+    await agent.set_trusted_contact("user-1", TrustedContact(name="Jamie", phone_number="+15559990000"))
+    contact = await agent.get_trusted_contact("user-1")
+
+    assert contact == TrustedContact(name="Jamie", phone_number="+15559990000")
 
 
 @pytest.mark.asyncio
