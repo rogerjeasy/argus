@@ -223,6 +223,18 @@ body {
   --tw-enter-opacity: 0;
 }
 
+/* Session Stage idle state — a slow breathing loop signaling "ready", not
+ * "working." The global prefers-reduced-motion rule above already collapses
+ * this like every other animation on the page. */
+@keyframes stage-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.02); }
+}
+
+.animate-stage-breathe {
+  animation: stage-breathe 3s ease-in-out infinite;
+}
+
 /* WatchingRings motif — a slow, deliberate pulse. "Deliberate, settled,"
  * never twitchy, per the brand's stated motion character. The global
  * prefers-reduced-motion rule above already collapses this like every
