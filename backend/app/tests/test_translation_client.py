@@ -1,7 +1,5 @@
 from unittest.mock import MagicMock
 
-import pytest
-
 from app.integrations.translation_client import RealTranslationClient, _PassthroughTranslationClient
 
 
