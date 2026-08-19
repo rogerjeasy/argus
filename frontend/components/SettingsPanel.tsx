@@ -5,9 +5,11 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogTrigger } 
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Select } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { getUserSettings, updateUserSettings } from "@/lib/api/userSettings";
+import { getTrustedContact, updateTrustedContact } from "@/lib/api/trustedContact";
 
 /**
  * The one settings control this phase needs — audio perception's opt-in
@@ -21,6 +23,8 @@ export function SettingsPanel() {
   const [open, setOpen] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [language, setLanguage] = useState("en");
+  const [contactName, setContactName] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -29,9 +33,14 @@ export function SettingsPanel() {
     (async () => {
       const token = await user.getIdToken();
       const settings = await getUserSettings(token);
+      const contact = await getTrustedContact(token);
       if (!cancelled) {
         setEnabled(settings.audio_perception_enabled);
         setLanguage(settings.language_preference);
+        if (contact) {
+          setContactName(contact.name);
+          setContactPhone(contact.phone_number);
+        }
         setLoaded(true);
       }
     })();
@@ -52,6 +61,12 @@ export function SettingsPanel() {
     if (!user) return;
     const token = await user.getIdToken();
     await updateUserSettings(token, { language_preference: next });
+  };
+
+  const handleSaveTrustedContact = async () => {
+    if (!user || !contactName || !contactPhone) return;
+    const token = await user.getIdToken();
+    await updateTrustedContact(token, { name: contactName, phone_number: contactPhone });
   };
 
   return (
@@ -90,6 +105,26 @@ export function SettingsPanel() {
             <option value="ar">Arabic</option>
             <option value="he">Hebrew</option>
           </Select>
+        </div>
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="trusted-contact-name">Trusted contact name</Label>
+          <Input
+            id="trusted-contact-name"
+            value={contactName}
+            onChange={(e) => setContactName(e.target.value)}
+            aria-label="Trusted contact name"
+          />
+          <Label htmlFor="trusted-contact-phone">Trusted contact phone number</Label>
+          <Input
+            id="trusted-contact-phone"
+            type="tel"
+            value={contactPhone}
+            onChange={(e) => setContactPhone(e.target.value)}
+            aria-label="Trusted contact phone number"
+          />
+          <Button onClick={handleSaveTrustedContact} variant="outline" size="sm">
+            Save trusted contact
+          </Button>
         </div>
       </DialogContent>
     </Dialog>
