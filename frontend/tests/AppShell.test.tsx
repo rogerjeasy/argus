@@ -89,3 +89,28 @@ test("persists the sidebar collapse state to localStorage", () => {
   fireEvent.click(screen.getByRole("button", { name: /collapse/i }));
   expect(window.localStorage.getItem("argus-sidebar-collapsed")).toBe("true");
 });
+
+test("shows a sign-out control in the top bar, on every breakpoint", () => {
+  vi.mocked(useAuth).mockReturnValue({ user: { uid: "user-1" }, loading: false } as never);
+  render(
+    <AppShell>
+      <div>child</div>
+    </AppShell>
+  );
+  // Top bar renders identically at every breakpoint (unlike the sidebar,
+  // which is hidden below md) — one control here covers desktop, tablet,
+  // and mobile without a separate mobile-specific implementation.
+  expect(screen.getByRole("button", { name: /sign out/i })).toBeInTheDocument();
+});
+
+test("clicking sign out calls signOutUser", () => {
+  const signOutUser = vi.fn();
+  vi.mocked(useAuth).mockReturnValue({ user: { uid: "user-1" }, loading: false, signOutUser } as never);
+  render(
+    <AppShell>
+      <div>child</div>
+    </AppShell>
+  );
+  fireEvent.click(screen.getByRole("button", { name: /sign out/i }));
+  expect(signOutUser).toHaveBeenCalled();
+});

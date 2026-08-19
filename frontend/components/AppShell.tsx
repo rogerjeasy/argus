@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { LogOut } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth/AuthProvider";
+import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { APP_NAV_ITEMS } from "@/lib/app-nav";
 import { cn } from "@/lib/utils";
@@ -11,7 +13,7 @@ import { cn } from "@/lib/utils";
 const SIDEBAR_COLLAPSED_KEY = "argus-sidebar-collapsed";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, loading, signOutUser } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
@@ -85,7 +87,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className="flex min-h-screen flex-1 flex-col">
         <header className="flex h-16 items-center justify-between border-b border-border px-4 sm:px-6">
           <h1 className="text-lg font-semibold tracking-tight text-foreground">{currentLabel}</h1>
-          <ThemeToggle />
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            {/* Lives in the top bar, not the sidebar — the sidebar is
+                hidden below md, so this is the one element that renders
+                identically on every breakpoint. */}
+            <Button variant="outline" size="icon" onClick={() => void signOutUser()} aria-label="Sign out">
+              <LogOut className="h-5 w-5" aria-hidden />
+            </Button>
+          </div>
         </header>
         <main className="flex-1 p-4 pb-24 sm:p-6 md:pb-6">{children}</main>
       </div>
