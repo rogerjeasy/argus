@@ -1,4 +1,4 @@
-.PHONY: dev test deploy bootstrap backend-dev frontend-dev backend-test frontend-test check-api-drift measure-latency test-redteam
+.PHONY: dev test deploy bootstrap backend-dev frontend-dev backend-test frontend-test check-api-drift measure-latency test-redteam test-fixtures
 
 GCP_REGION ?= us-central1
 
@@ -55,6 +55,9 @@ check-api-drift:
 
 test-redteam:
 	cd backend && poetry run python -m pytest -m redteam -v
+
+test-fixtures:
+	cd backend && poetry run python -m pytest app/tests/test_redteam_recorded_fixtures.py app/tests/test_fixture_regression_recorded.py -v
 
 measure-latency:
 	cd backend && poetry run python ../scripts/measure_latency.py --runs 20 --out ../docs/specs/2026-08-19-phase5-latency-report.json
