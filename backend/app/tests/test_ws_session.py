@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 import pytest
 from fastapi.testclient import TestClient
 
+from app.agents.escalation import LoggingNotificationSender
 from app.core.auth import AuthenticatedUser
 from app.core.clients import get_firestore_client
 from app.main import app
@@ -613,6 +614,47 @@ def test_build_orchestrator_registers_personal_admin_alongside_transit(monkeypat
     assert "personal_admin" in orchestrator._domains
     personal_admin = orchestrator._domains["personal_admin"]
     assert personal_admin.executors == {}  # no Twilio credentials in this test's Settings
+    assert isinstance(orchestrator._escalation._sender, LoggingNotificationSender)
+    reset_transit_domain_registry_for_tests()
+
+
+def test_build_orchestrator_uses_real_notification_sender_when_twilio_configured(monkeypatch) -> None:
+    import asyncio
+
+    import httpx
+
+    from app.agents.escalation import RealNotificationSender
+    from app.core.config import Settings
+    from app.domains.transit.registry import reset_transit_domain_registry_for_tests
+    from app.tests.fixtures.gtfs_builders import build_static_feed_zip
+    from app.ws.session import build_orchestrator
+
+    _real_async_client = httpx.AsyncClient
+    static_zip = build_static_feed_zip(
+        [{"stop_id": "s1", "stop_name": "North Station", "platform_code": "", "parent_station": ""}],
+        [{"trip_id": "t1", "stop_id": "s1", "arrival_time": "09:00:00", "stop_sequence": "1"}],
+    )
+
+    class _FakeTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=static_zip, request=request)
+
+    reset_transit_domain_registry_for_tests()
+    monkeypatch.setattr(
+        "app.ws.session.get_settings",
+        lambda: Settings(
+            gtfs_ch_static_feed_url="", gtfs_ch_realtime_feed_url="",
+            twilio_account_sid="AC_fake", twilio_auth_token="fake_token", twilio_from_number="+15551234567",
+        ),
+    )
+    monkeypatch.setattr(
+        "app.domains.transit.registry.httpx.AsyncClient", lambda **kw: _real_async_client(transport=_FakeTransport())
+    )
+
+    db = FakeFirestoreClient()
+    orchestrator = asyncio.run(build_orchestrator(db))
+
+    assert isinstance(orchestrator._escalation._sender, RealNotificationSender)
     reset_transit_domain_registry_for_tests()
 
 

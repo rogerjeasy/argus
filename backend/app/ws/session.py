@@ -14,7 +14,12 @@ from starlette.concurrency import run_in_threadpool
 from starlette.websockets import WebSocketState
 
 from app.agents.audio_perception import AudioClassifier, AudioPerceptionAgent
-from app.agents.escalation import EscalationAgent, LoggingNotificationSender
+from app.agents.escalation import (
+    EscalationAgent,
+    LoggingNotificationSender,
+    NotificationSender,
+    RealNotificationSender,
+)
 from app.agents.grounding import GroundingAgent
 from app.agents.guardrail import GuardrailAgent
 from app.agents.guidance import GuidanceAgent
@@ -153,12 +158,14 @@ async def build_orchestrator(db: firestore.Client) -> TaskOrchestrator:
     memory = MemoryAgent(db)
     guardrail_agent = GuardrailAgent()
     personal_admin = PersonalAdminDomain(triage_runner, memory, guardrail_agent)
+    notification_sender: NotificationSender = LoggingNotificationSender()
     if settings.twilio_account_sid and settings.twilio_from_number:
         twilio = RealTwilioClient(settings.twilio_account_sid, settings.twilio_auth_token)
         personal_admin.executors["call"] = CallExecutor(
             twilio, get_call_session_registry(),
             from_number=settings.twilio_from_number, public_base_url=settings.public_base_url,
         )
+        notification_sender = RealNotificationSender(twilio, memory, from_number=settings.twilio_from_number)
     if settings.personal_admin_storage_bucket:
         storage = RealStorageClient(settings.personal_admin_storage_bucket, sdk_client=get_storage_client())
         personal_admin.executors["form"] = FormExecutor(storage)
@@ -176,7 +183,7 @@ async def build_orchestrator(db: firestore.Client) -> TaskOrchestrator:
         replanning=ReplanningAgent(),
         guidance=GuidanceAgent(guidance_runner),
         memory=memory,
-        escalation=EscalationAgent(db, get_publisher_client(), LoggingNotificationSender()),
+        escalation=EscalationAgent(db, get_publisher_client(), notification_sender),
     )
 
 
