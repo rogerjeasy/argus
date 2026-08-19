@@ -17,24 +17,48 @@ def test_get_settings_returns_defaults_when_unset() -> None:
     client = _client()
     response = client.get("/api/settings")
     assert response.status_code == 200
-    assert response.json() == {"verbosity": "normal", "pace": "normal", "audio_perception_enabled": False}
+    assert response.json() == {
+        "verbosity": "normal", "pace": "normal", "audio_perception_enabled": False, "language_preference": "en",
+    }
 
 
 def test_put_settings_persists_partial_update() -> None:
     client = _client()
     response = client.put("/api/settings", json={"verbosity": "terse"})
     assert response.status_code == 200
-    assert response.json() == {"verbosity": "terse", "pace": "normal", "audio_perception_enabled": False}
+    assert response.json() == {
+        "verbosity": "terse", "pace": "normal", "audio_perception_enabled": False, "language_preference": "en",
+    }
 
     follow_up = client.get("/api/settings")
-    assert follow_up.json() == {"verbosity": "terse", "pace": "normal", "audio_perception_enabled": False}
+    assert follow_up.json() == {
+        "verbosity": "terse", "pace": "normal", "audio_perception_enabled": False, "language_preference": "en",
+    }
 
 
 def test_put_settings_can_enable_audio_perception() -> None:
     client = _client()
     response = client.put("/api/settings", json={"audio_perception_enabled": True})
     assert response.status_code == 200
-    assert response.json() == {"verbosity": "normal", "pace": "normal", "audio_perception_enabled": True}
+    assert response.json() == {
+        "verbosity": "normal", "pace": "normal", "audio_perception_enabled": True, "language_preference": "en",
+    }
+
+
+def test_get_settings_defaults_to_english() -> None:
+    client = _client()
+    response = client.get("/api/settings")
+    assert response.json()["language_preference"] == "en"
+
+
+def test_put_settings_can_set_language_preference() -> None:
+    client = _client()
+    response = client.put("/api/settings", json={"language_preference": "ar"})
+    assert response.status_code == 200
+    assert response.json()["language_preference"] == "ar"
+
+    follow_up = client.get("/api/settings")
+    assert follow_up.json()["language_preference"] == "ar"
 
 
 def test_put_settings_can_explicitly_disable_audio_perception_after_enabling() -> None:
