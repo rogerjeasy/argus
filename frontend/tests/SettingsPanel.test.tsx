@@ -21,7 +21,7 @@ function mockUser() {
 test("opening the panel loads the current setting, defaulted off", async () => {
   mockUser();
   vi.mocked(getUserSettings).mockResolvedValue({
-    verbosity: "normal", pace: "normal", audio_perception_enabled: false,
+    verbosity: "normal", pace: "normal", audio_perception_enabled: false, language_preference: "en",
   });
 
   render(<SettingsPanel />);
@@ -34,10 +34,10 @@ test("opening the panel loads the current setting, defaulted off", async () => {
 test("toggling on calls updateUserSettings with audio_perception_enabled: true", async () => {
   mockUser();
   vi.mocked(getUserSettings).mockResolvedValue({
-    verbosity: "normal", pace: "normal", audio_perception_enabled: false,
+    verbosity: "normal", pace: "normal", audio_perception_enabled: false, language_preference: "en",
   });
   vi.mocked(updateUserSettings).mockResolvedValue({
-    verbosity: "normal", pace: "normal", audio_perception_enabled: true,
+    verbosity: "normal", pace: "normal", audio_perception_enabled: true, language_preference: "en",
   });
 
   render(<SettingsPanel />);
@@ -51,10 +51,27 @@ test("toggling on calls updateUserSettings with audio_perception_enabled: true",
   );
 });
 
+test("lets the user change language preference", async () => {
+  mockUser();
+  vi.mocked(getUserSettings).mockResolvedValue({
+    verbosity: "normal", pace: "normal", audio_perception_enabled: false, language_preference: "en",
+  });
+
+  render(<SettingsPanel />);
+  fireEvent.click(screen.getByRole("button", { name: /settings/i }));
+  await screen.findByLabelText("Language");
+
+  fireEvent.change(screen.getByLabelText("Language"), { target: { value: "ar" } });
+
+  await waitFor(() =>
+    expect(vi.mocked(updateUserSettings)).toHaveBeenCalledWith("fake-token", { language_preference: "ar" })
+  );
+});
+
 test("the description explains what audio perception does before it is ever turned on", async () => {
   mockUser();
   vi.mocked(getUserSettings).mockResolvedValue({
-    verbosity: "normal", pace: "normal", audio_perception_enabled: false,
+    verbosity: "normal", pace: "normal", audio_perception_enabled: false, language_preference: "en",
   });
 
   render(<SettingsPanel />);

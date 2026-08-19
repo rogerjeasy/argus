@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { getUserSettings, updateUserSettings } from "@/lib/api/userSettings";
@@ -19,6 +20,7 @@ export function SettingsPanel() {
   const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [enabled, setEnabled] = useState(false);
+  const [language, setLanguage] = useState("en");
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -29,6 +31,7 @@ export function SettingsPanel() {
       const settings = await getUserSettings(token);
       if (!cancelled) {
         setEnabled(settings.audio_perception_enabled);
+        setLanguage(settings.language_preference);
         setLoaded(true);
       }
     })();
@@ -42,6 +45,13 @@ export function SettingsPanel() {
     if (!user) return;
     const token = await user.getIdToken();
     await updateUserSettings(token, { audio_perception_enabled: next });
+  };
+
+  const handleLanguageChange = async (next: string) => {
+    setLanguage(next); // optimistic, same reasoning as handleToggle
+    if (!user) return;
+    const token = await user.getIdToken();
+    await updateUserSettings(token, { language_preference: next });
   };
 
   return (
@@ -67,6 +77,19 @@ export function SettingsPanel() {
             onCheckedChange={handleToggle}
             aria-label="Audio perception"
           />
+        </div>
+        <div className="flex items-center justify-between gap-4">
+          <Label htmlFor="language-select">Language</Label>
+          <Select
+            id="language-select"
+            value={loaded ? language : "en"}
+            onChange={handleLanguageChange}
+            aria-label="Language"
+          >
+            <option value="en">English</option>
+            <option value="ar">Arabic</option>
+            <option value="he">Hebrew</option>
+          </Select>
         </div>
       </DialogContent>
     </Dialog>

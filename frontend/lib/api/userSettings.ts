@@ -4,6 +4,7 @@ export interface UserSettings {
   verbosity: "terse" | "normal" | "verbose";
   pace: "slow" | "normal" | "fast";
   audio_perception_enabled: boolean;
+  language_preference: string;
 }
 
 export async function getUserSettings(token: string): Promise<UserSettings> {
