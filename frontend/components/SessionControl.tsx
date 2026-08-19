@@ -9,6 +9,7 @@ import { ConnectionStatus } from "./ConnectionStatus";
 import { FormFieldPrompt } from "./FormFieldPrompt";
 import { FramingStatus } from "./FramingStatus";
 import { GuardrailStatus } from "./GuardrailStatus";
+import { SettingsPanel } from "./SettingsPanel";
 
 export function SessionControl() {
   const { user } = useAuth();
@@ -36,14 +37,17 @@ export function SessionControl() {
 
   return (
     <div className="flex flex-col gap-4">
-      <Button
-        onClick={() => void (isActive ? stop() : start())}
-        disabled={!token}
-        variant={isActive ? "destructive" : "default"}
-        size="lg"
-      >
-        {isActive ? "Stop" : "Start"}
-      </Button>
+      <div className="flex items-center justify-between">
+        <Button
+          onClick={() => void (isActive ? stop() : start())}
+          disabled={!token}
+          variant={isActive ? "destructive" : "default"}
+          size="lg"
+        >
+          {isActive ? "Stop" : "Start"}
+        </Button>
+        <SettingsPanel />
+      </div>
       <ConnectionStatus status={status} />
       {guardrailDecision ? <GuardrailStatus decision={guardrailDecision} /> : null}
       <FramingStatus confidenceLow={confidenceLow} />
