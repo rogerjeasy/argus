@@ -10,6 +10,16 @@ export interface GuidanceFrame {
   /** Only set when guardrailDecision === "requires_field_input" — the
    * human-readable label of the one form field still needing a value. */
   fieldLabel: string | null;
+  /** BCP-47 code the text was translated into, "en" when untranslated or
+   * absent (older/default server responses). Drives caption dir via
+   * isRtlLanguage(). */
+  language: string;
+}
+
+const RTL_LANGUAGES = new Set(["ar", "he"]);
+
+export function isRtlLanguage(code: string): boolean {
+  return RTL_LANGUAGES.has(code);
 }
 
 /**
@@ -48,6 +58,7 @@ export function parseControlFrame(raw: string): GuidanceFrame | null {
     guardrailDecision: frame.guardrail_decision as GuardrailDecisionValue,
     stepId: frame.step_id,
     fieldLabel: typeof frame.field_label === "string" ? frame.field_label : null,
+    language: typeof frame.language === "string" ? frame.language : "en",
   };
 }
 

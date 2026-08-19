@@ -1,5 +1,5 @@
 import { describe, expect, it, test, vi } from "vitest";
-import { parseControlFrame, parseFramingFrame } from "@/lib/session/protocol";
+import { isRtlLanguage, parseControlFrame, parseFramingFrame } from "@/lib/session/protocol";
 
 describe("parseControlFrame", () => {
   it("parses a well-formed guidance frame", () => {
@@ -21,7 +21,22 @@ describe("parseControlFrame", () => {
       guardrailDecision: "requires_confirmation",
       stepId: "step-1",
       fieldLabel: null,
+      language: "en",
     });
+  });
+
+  it("parses the language field, defaulting to en when absent", () => {
+    const withLanguage = parseControlFrame(
+      JSON.stringify({
+        type: "guidance", text: "פנה שמאלה.", guardrail_decision: "approved", step_id: "s1", language: "he",
+      })
+    );
+    expect(withLanguage?.language).toBe("he");
+
+    const withoutLanguage = parseControlFrame(
+      JSON.stringify({ type: "guidance", text: "Turn left.", guardrail_decision: "approved", step_id: "s1" })
+    );
+    expect(withoutLanguage?.language).toBe("en");
   });
 
   it("returns null and logs on malformed JSON instead of throwing", () => {
@@ -55,6 +70,13 @@ test("parseControlFrame captures step_id for the confirmation round trip", () =>
   );
 
   expect(frame?.stepId).toBe("s1");
+});
+
+test("isRtlLanguage is true only for Arabic and Hebrew", () => {
+  expect(isRtlLanguage("ar")).toBe(true);
+  expect(isRtlLanguage("he")).toBe(true);
+  expect(isRtlLanguage("en")).toBe(false);
+  expect(isRtlLanguage("de")).toBe(false);
 });
 
 describe("parseFramingFrame", () => {

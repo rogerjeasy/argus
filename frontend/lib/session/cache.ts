@@ -3,6 +3,7 @@ const STORAGE_KEY = "argus:cached-guidance";
 export interface CachedGuidance {
   captionText: string | null;
   framingText: string | null;
+  captionLanguage: string;
 }
 
 export function saveCachedGuidance(state: CachedGuidance): void {

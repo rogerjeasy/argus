@@ -6,9 +6,9 @@ beforeEach(() => {
 });
 
 test("round-trips through localStorage", () => {
-  saveCachedGuidance({ captionText: "Head to platform 4.", framingText: null });
+  saveCachedGuidance({ captionText: "Head to platform 4.", framingText: null, captionLanguage: "en" });
 
-  expect(loadCachedGuidance()).toEqual({ captionText: "Head to platform 4.", framingText: null });
+  expect(loadCachedGuidance()).toEqual({ captionText: "Head to platform 4.", framingText: null, captionLanguage: "en" });
 });
 
 test("returns null when nothing has been cached", () => {
@@ -16,7 +16,7 @@ test("returns null when nothing has been cached", () => {
 });
 
 test("clearCachedGuidance removes it", () => {
-  saveCachedGuidance({ captionText: "x", framingText: "y" });
+  saveCachedGuidance({ captionText: "x", framingText: "y", captionLanguage: "en" });
   clearCachedGuidance();
 
   expect(loadCachedGuidance()).toBeNull();

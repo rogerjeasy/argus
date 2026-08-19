@@ -41,6 +41,7 @@ export function useSession(token: string | null) {
   const [status, setStatus] = useState<SessionStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [captionText, setCaptionText] = useState<string | null>(null);
+  const [captionLanguage, setCaptionLanguage] = useState("en");
   const [guardrailDecision, setGuardrailDecision] = useState<GuidanceFrame["guardrailDecision"] | null>(null);
   const [framingText, setFramingText] = useState<string | null>(null);
   const [confidenceLow, setConfidenceLow] = useState(false);
@@ -83,6 +84,7 @@ export function useSession(token: string | null) {
     // bleed into the next one — this runs both on stop() and at the top of
     // start() (clearing out a previous unclean disconnect).
     setCaptionText(null);
+    setCaptionLanguage("en");
     setGuardrailDecision(null);
     setFramingText(null);
     setConfidenceLow(false);
@@ -214,6 +216,7 @@ export function useSession(token: string | null) {
         if (cached) {
           setCaptionText(cached.captionText);
           setFramingText(cached.framingText);
+          setCaptionLanguage(cached.captionLanguage);
           setUsingCachedGuidance(true);
         }
         setStatus("reconnecting");
@@ -247,12 +250,13 @@ export function useSession(token: string | null) {
         const frame = parseControlFrame(event.data);
         if (frame) {
           setCaptionText(frame.text);
+          setCaptionLanguage(frame.language);
           setGuardrailDecision(frame.guardrailDecision);
           setUsingCachedGuidance(false);
           // Framing text is deliberately not cached — see this task's plan
           // note on why stale camera guidance would be actively misleading
           // in a way stale spoken guidance is not.
-          saveCachedGuidance({ captionText: frame.text, framingText: null });
+          saveCachedGuidance({ captionText: frame.text, framingText: null, captionLanguage: frame.language });
           setPendingConfirmation(
             frame.guardrailDecision === "requires_confirmation" ? { stepId: frame.stepId, text: frame.text } : null
           );
@@ -317,7 +321,7 @@ export function useSession(token: string | null) {
   }, [pendingFieldRequest]);
 
   return {
-    status, errorMessage, captionText, guardrailDecision, framingText, confidenceLow, usingCachedGuidance,
+    status, errorMessage, captionText, captionLanguage, guardrailDecision, framingText, confidenceLow, usingCachedGuidance,
     pendingConfirmation, resolveConfirmation, pendingFieldRequest, resolveFieldInput, start, stop,
   };
 }

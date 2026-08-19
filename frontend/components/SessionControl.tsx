@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { useSession } from "@/lib/session/useSession";
+import { isRtlLanguage } from "@/lib/session/protocol";
 import { Button } from "@/components/ui/button";
 import { ConfirmationPrompt } from "./ConfirmationPrompt";
 import { ConnectionStatus } from "./ConnectionStatus";
@@ -31,7 +32,7 @@ export function SessionControl() {
   }, [user]);
 
   const {
-    status, errorMessage, captionText, guardrailDecision, framingText, confidenceLow,
+    status, errorMessage, captionText, captionLanguage, guardrailDecision, framingText, confidenceLow,
     usingCachedGuidance, pendingConfirmation, resolveConfirmation, pendingFieldRequest,
     resolveFieldInput, start, stop,
   } = useSession(token);
@@ -59,7 +60,7 @@ export function SessionControl() {
           reply. `polite` because it updates routinely, not something the
           user must act on. */}
       <div aria-live="polite" className="min-h-[2rem]">
-        {captionText ? <p>{captionText}</p> : null}
+        {captionText ? <p dir={isRtlLanguage(captionLanguage) ? "rtl" : "ltr"}>{captionText}</p> : null}
       </div>
       {/* Camera framing guidance ("move slightly right", etc.) — a separate
           region from captionText since the two update independently and on
