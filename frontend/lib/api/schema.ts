@@ -96,6 +96,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/internal/run-calibration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run Calibration */
+        post: operations["run_calibration_internal_run_calibration_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/run-daily-briefing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run Daily Briefing */
+        post: operations["run_daily_briefing_internal_run_daily_briefing_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -147,6 +181,16 @@ export interface components {
              * @default normal
              */
             pace: string;
+            /**
+             * Audio Perception Enabled
+             * @default false
+             */
+            audio_perception_enabled: boolean;
+            /**
+             * Language Preference
+             * @default en
+             */
+            language_preference: string;
         };
         /** UserSettingsUpdate */
         UserSettingsUpdate: {
@@ -154,6 +198,10 @@ export interface components {
             verbosity?: string | null;
             /** Pace */
             pace?: string | null;
+            /** Audio Perception Enabled */
+            audio_perception_enabled?: boolean | null;
+            /** Language Preference */
+            language_preference?: string | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -325,6 +373,72 @@ export interface operations {
             path: {
                 step_id: string;
             };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_calibration_internal_run_calibration_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-calibration-secret"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_daily_briefing_internal_run_daily_briefing_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-daily-briefing-secret"?: string;
+            };
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;
