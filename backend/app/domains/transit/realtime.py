@@ -13,6 +13,13 @@ class DecodedTripUpdate:
     fetched_at: datetime
 
 
+@dataclass(frozen=True)
+class DecodedAlert:
+    header_text: str
+    description_text: str | None
+    fetched_at: datetime
+
+
 class TripUpdatePoller:
     """Fetches and decodes a GTFS-Realtime TripUpdate feed, caching the
     latest decode for `cache_ttl_seconds` so a burst of grounding requests
@@ -71,3 +78,30 @@ class TripUpdatePoller:
                     )
             return None  # trip is in this feed snapshot but not calling at any candidate stop
         return None  # trip not present in this feed snapshot at all
+
+    async def latest_alert_for(self, trip_id: str, candidate_stop_ids: frozenset[str]) -> DecodedAlert | None:
+        """Same cached FeedMessage latest_for() reads — GTFS-RT commonly
+        serves TripUpdate and Alert entities on one combined feed URL (see
+        the pre-demo checklist for the real-feed verification this still
+        needs). Matches an alert whose informed_entity references this
+        trip_id directly, or one of the candidate platform-level stop_ids —
+        the same two-key match latest_for() already uses for TripUpdate."""
+        try:
+            message = await self._fetch()
+        except httpx.HTTPError:
+            return None
+
+        for entity in message.entity:
+            if not entity.HasField("alert"):
+                continue
+            alert = entity.alert
+            matched = any(
+                informed.trip.trip_id == trip_id or informed.stop_id in candidate_stop_ids
+                for informed in alert.informed_entity
+            )
+            if not matched:
+                continue
+            header = alert.header_text.translation[0].text if alert.header_text.translation else ""
+            description = alert.description_text.translation[0].text if alert.description_text.translation else None
+            return DecodedAlert(header_text=header, description_text=description, fetched_at=datetime.now(timezone.utc))
+        return None

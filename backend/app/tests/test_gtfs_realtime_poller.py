@@ -4,7 +4,7 @@ import httpx
 import pytest
 
 from app.domains.transit.realtime import TripUpdatePoller
-from app.tests.fixtures.gtfs_builders import build_trip_update_feed_message
+from app.tests.fixtures.gtfs_builders import build_alert_feed_message, build_trip_update_feed_message
 
 
 class _FakeTransport(httpx.AsyncBaseTransport):
@@ -94,3 +94,48 @@ async def test_latest_for_caches_within_the_ttl() -> None:
     await poller.latest_for("t1", frozenset({"s1"}))
 
     assert len(transport.requests) == 1  # second call served from cache, no second fetch
+
+
+@pytest.mark.asyncio
+async def test_latest_alert_for_decodes_a_matching_stop_alert() -> None:
+    body = build_alert_feed_message([
+        {"stop_id": "8503000:4", "header_text": "Delays on this line", "description_text": "Signal fault near Zurich HB"},
+    ])
+    transport = _FakeTransport(body)
+    poller = TripUpdatePoller(feed_url="https://feed.example/rt", auth_header=None, client=_client(transport))
+
+    result = await poller.latest_alert_for("IC1.TA.1", frozenset({"8503000:4", "8503000:7"}))
+
+    assert result is not None
+    assert result.header_text == "Delays on this line"
+    assert result.description_text == "Signal fault near Zurich HB"
+
+
+@pytest.mark.asyncio
+async def test_latest_alert_for_matches_by_trip_id_too() -> None:
+    body = build_alert_feed_message([{"trip_id": "IC1.TA.1", "header_text": "Trip cancelled"}])
+    transport = _FakeTransport(body)
+    poller = TripUpdatePoller(feed_url="https://feed.example/rt", auth_header=None, client=_client(transport))
+
+    result = await poller.latest_alert_for("IC1.TA.1", frozenset({"unrelated-stop"}))
+
+    assert result is not None
+    assert result.header_text == "Trip cancelled"
+    assert result.description_text is None
+
+
+@pytest.mark.asyncio
+async def test_latest_alert_for_returns_none_when_nothing_matches() -> None:
+    body = build_alert_feed_message([{"trip_id": "other-trip", "stop_id": "other-stop", "header_text": "Unrelated"}])
+    transport = _FakeTransport(body)
+    poller = TripUpdatePoller(feed_url="https://feed.example/rt", auth_header=None, client=_client(transport))
+
+    assert await poller.latest_alert_for("IC1.TA.1", frozenset({"8503000:4"})) is None
+
+
+@pytest.mark.asyncio
+async def test_latest_alert_for_returns_none_on_feed_outage() -> None:
+    transport = _FakeTransport(b"", status_code=503)
+    poller = TripUpdatePoller(feed_url="https://feed.example/rt", auth_header=None, client=_client(transport))
+
+    assert await poller.latest_alert_for("t1", frozenset({"s1"})) is None
