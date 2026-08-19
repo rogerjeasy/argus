@@ -98,6 +98,7 @@ async def test_camera_signal_the_feed_does_not_confirm_changes_nothing() -> None
 
 
 @pytest.mark.asyncio
+@pytest.mark.redteam
 async def test_low_confidence_camera_signal_never_reaches_the_grounding_source() -> None:
     from app.models.agent_events import SceneSignal
 

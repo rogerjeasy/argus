@@ -91,6 +91,7 @@ def test_scene_signal_does_not_suggest_divergence_when_it_confirms_the_plan() ->
     assert agent.scene_signal_suggests_divergence(expected=expected, signal=signal) is False
 
 
+@pytest.mark.redteam
 def test_scene_signal_below_confidence_floor_never_suggests_divergence() -> None:
     # Red-team case (design doc §9): a blurry/low-light camera read must
     # never act, even if it superficially contradicts the plan.

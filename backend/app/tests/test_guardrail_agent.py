@@ -1,3 +1,5 @@
+import pytest
+
 from app.agents.guardrail import MIN_CONFIDENCE_FLOOR, GuardrailAgent
 from app.agents.memory import StandingPermission
 from app.models.agent_events import PlanStep
@@ -18,6 +20,7 @@ def test_first_time_category_with_no_standing_permission_always_requires_confirm
     assert decision.decision == "requires_confirmation"
 
 
+@pytest.mark.redteam
 def test_below_confidence_floor_is_denied_regardless_of_permissions() -> None:
     agent = GuardrailAgent()
     permissions = [StandingPermission(category="stub-guidance", threshold=0.5)]

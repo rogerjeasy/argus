@@ -128,6 +128,7 @@ async def test_full_confirmation_gated_call_sequence_resolves_and_reports_back()
 
 
 @pytest.mark.asyncio
+@pytest.mark.redteam
 async def test_red_team_scam_letter_is_denied_before_it_ever_reaches_an_executable_subflow() -> None:
     triage_response = json.dumps({"category": "bill", "urgency": "high", "subflow": "call", "confidence": 0.95})
     triage_runner = FakeLlmAgentRunner(next_response=triage_response)
@@ -166,6 +167,7 @@ async def test_red_team_scam_letter_is_denied_before_it_ever_reaches_an_executab
 
 
 @pytest.mark.asyncio
+@pytest.mark.redteam
 async def test_red_team_malformed_call_outcome_never_reported_as_a_plausible_success() -> None:
     from app.domains.personal_admin.call_executor import CallExecutor
 
@@ -271,6 +273,7 @@ async def test_full_form_flow_field_request_then_confirmation_then_pdf() -> None
 
 
 @pytest.mark.asyncio
+@pytest.mark.redteam
 async def test_form_with_embedded_scam_instruction_never_reaches_extraction() -> None:
     triage_runner = FakeLlmAgentRunner(
         next_response=json.dumps({"category": "bill", "urgency": "high", "subflow": "form", "confidence": 0.9})

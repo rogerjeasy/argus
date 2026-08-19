@@ -49,6 +49,7 @@ def _orchestrator() -> TaskOrchestrator:
 
 
 @pytest.mark.asyncio
+@pytest.mark.redteam
 async def test_spoken_distress_alone_never_escalates() -> None:
     """Red-team case (design doc §9): the keyword signal alone must not
     trigger — the real goal must still be routed normally."""

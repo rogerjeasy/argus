@@ -44,3 +44,6 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+markers = [
+    "redteam: adversarial/red-team cases consolidated across all phases (Phase 5 design doc §4)",
+]
