@@ -12,8 +12,10 @@ import { describeCameraError, startCameraCapture, type CameraCapture } from "./v
 import {
   parseControlFrame, parseFramingFrame, sendResolveConfirmation, sendResolveFieldInput, type GuidanceFrame,
 } from "./protocol";
+import { RECONNECT_MAX_ATTEMPTS, reconnectDelayMs } from "./reconnect";
+import { loadCachedGuidance, saveCachedGuidance } from "./cache";
 
-type SessionStatus = "idle" | "connecting" | "connected" | "error";
+type SessionStatus = "idle" | "connecting" | "connected" | "reconnecting" | "error";
 
 const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_BASE_URL ?? "ws://localhost:8000";
 
@@ -44,16 +46,26 @@ export function useSession(token: string | null) {
   const [confidenceLow, setConfidenceLow] = useState(false);
   const [pendingConfirmation, setPendingConfirmation] = useState<{ stepId: string; text: string } | null>(null);
   const [pendingFieldRequest, setPendingFieldRequest] = useState<{ stepId: string; text: string; label: string } | null>(null);
+  const [usingCachedGuidance, setUsingCachedGuidance] = useState(false);
 
   const socketRef = useRef<WebSocket | null>(null);
   const captureRef = useRef<MicrophoneCapture | null>(null);
   const cameraRef = useRef<CameraCapture | null>(null);
   const playerRef = useRef<PcmPlayer | null>(null);
+  const reconnectAttemptRef = useRef(0);
+  const intentionalCloseRef = useRef(false);
+  const reachedConnectedRef = useRef(false);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Not a useCallback: the unmount effect below must not re-run when this
   // changes, and every caller is inside this hook anyway.
   const teardownRef = useRef<() => void>(() => {});
   teardownRef.current = () => {
+    if (reconnectTimeoutRef.current !== null) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    setUsingCachedGuidance(false);
     captureRef.current?.stop();
     captureRef.current = null;
     cameraRef.current?.stop();
@@ -88,15 +100,20 @@ export function useSession(token: string | null) {
   }, []);
 
   const beginCapture = useCallback(async (socket: WebSocket) => {
+    if (captureRef.current) return; // already capturing — a reconnect's onopen must not start a second stream
     try {
       const capture = await startMicrophoneCapture((chunk) => {
-        // The socket can close between two capture callbacks; sending on a
-        // closing socket throws.
-        if (socket.readyState === WebSocket.OPEN) {
+        // Checked against socketRef.current, not the socket this call
+        // started with: after a reconnect, socketRef.current points at the
+        // new live socket while this closure's own `socket` parameter
+        // would forever point at the old, permanently-closed one — audio
+        // would never resume sending after a reconnect otherwise.
+        const current = socketRef.current;
+        if (current && current.readyState === WebSocket.OPEN) {
           const prefixed = new Uint8Array(chunk.byteLength + 1);
           prefixed[0] = FRAME_TYPE_AUDIO;
           prefixed.set(new Uint8Array(chunk), 1);
-          socket.send(prefixed.buffer);
+          current.send(prefixed.buffer);
         }
       });
       // If the session was stopped while the permission prompt was open,
@@ -117,13 +134,15 @@ export function useSession(token: string | null) {
   }, []);
 
   const beginCameraCapture = useCallback(async (socket: WebSocket) => {
+    if (cameraRef.current) return; // same idempotency reasoning as beginCapture
     try {
       const camera = await startCameraCapture((jpeg) => {
-        if (socket.readyState === WebSocket.OPEN) {
+        const current = socketRef.current;
+        if (current && current.readyState === WebSocket.OPEN) {
           const prefixed = new Uint8Array(jpeg.byteLength + 1);
           prefixed[0] = FRAME_TYPE_VIDEO;
           prefixed.set(new Uint8Array(jpeg), 1);
-          socket.send(prefixed.buffer);
+          current.send(prefixed.buffer);
         }
       });
       if (socketRef.current !== socket) {
@@ -139,31 +158,18 @@ export function useSession(token: string | null) {
     }
   }, []);
 
-  const start = useCallback(async () => {
-    if (!token) {
-      setStatus("error");
-      setErrorMessage("You need to be signed in before starting a session.");
-      return;
-    }
-
-    // Starting again while a previous session's socket/mic/player are still
-    // around (e.g. clicking Start after an unclean disconnect) must not
-    // silently orphan them — each leaked AudioContext counts against the
-    // browser's per-page cap until new ones can no longer be created.
-    teardownRef.current();
-
-    setStatus("connecting");
-    setErrorMessage(null);
-
-    const socket = new WebSocket(`${WS_BASE_URL}/ws/session?token=${token}`);
+  const establishConnection = useCallback((currentToken: string) => {
+    const socket = new WebSocket(`${WS_BASE_URL}/ws/session?token=${currentToken}`);
     // ArrayBuffer rather than the default Blob: playback needs synchronous
     // access to the bytes, and Blob would force an async round trip per frame.
     socket.binaryType = "arraybuffer";
     socketRef.current = socket;
-    playerRef.current = new PcmPlayer();
+    if (!playerRef.current) playerRef.current = new PcmPlayer();
 
     socket.onopen = () => {
       setStatus("connected");
+      reachedConnectedRef.current = true;
+      reconnectAttemptRef.current = 0;
       void beginCapture(socket);
       void beginCameraCapture(socket);
     };
@@ -171,23 +177,58 @@ export function useSession(token: string | null) {
       setStatus("error");
       setErrorMessage("The connection to Argus failed. Check your network and try again.");
       // An error on the socket means this session is dead: release the mic
-      // and audio contexts now rather than waiting for onclose. A server- or
-      // network-initiated end is the most likely real-world disconnect — far
-      // more likely than a clean, user-clicked Stop — so this is the path
-      // that most needs the same cleanup start()/stop() already guarantee.
+      // and audio contexts now rather than waiting for onclose. Unlike a
+      // clean onclose (below), an error never triggers a reconnect attempt
+      // — it's treated as more severe, matching this codebase's existing
+      // distinction between "server closed us cleanly" and "something is
+      // actually wrong with the connection."
       teardownRef.current();
     };
     // A real disconnect fires onclose immediately after onerror; without this
     // guard the "Connection error" status — the one thing ConnectionStatus is
-    // mandated to surface via icon+text+color — would be overwritten by
-    // "Not connected" before anyone could perceive it.
+    // mandated to surface via icon+text+color — would be overwritten before
+    // anyone could perceive it.
     socket.onclose = () => {
+      // A real WebSocket.close() never re-enters onclose synchronously,
+      // but this codebase's own test double does (see teardownRef's own
+      // comment on the same reentrancy) — and teardownRef's fallback path
+      // below calls itself, which calls socket.close(), which would
+      // re-enter this exact handler on the now-already-nulled socketRef.
+      // Bailing here when this event no longer concerns the current
+      // socket stops that from scheduling a second, spurious reconnect
+      // (or double-executing the fallback) on every close.
+      if (socketRef.current !== socket) return;
+      if (intentionalCloseRef.current) {
+        setStatus("idle");
+        teardownRef.current();
+        return;
+      }
+      // A clean onclose (no preceding onerror), after having been
+      // connected at least once, is the most likely real disconnect in
+      // production — Gemini dropping the stream, a token expiring, a
+      // Cloud Run instance recycling, a short network gap. Reconnect
+      // instead of tearing down, replaying the last-known guidance from
+      // local storage in the meantime (design doc §6).
+      if (reachedConnectedRef.current && reconnectAttemptRef.current < RECONNECT_MAX_ATTEMPTS) {
+        const cached = loadCachedGuidance();
+        if (cached) {
+          setCaptionText(cached.captionText);
+          setFramingText(cached.framingText);
+          setUsingCachedGuidance(true);
+        }
+        setStatus("reconnecting");
+        reconnectAttemptRef.current += 1;
+        const delay = reconnectDelayMs(reconnectAttemptRef.current);
+        reconnectTimeoutRef.current = setTimeout(() => {
+          reconnectTimeoutRef.current = null;
+          establishConnection(currentToken);
+        }, delay);
+        return;
+      }
+      // Exhausted the retry budget, or never reached "connected" in the
+      // first place (today's original behavior for a failed initial
+      // connect) — fall back to full teardown.
       setStatus((prev) => (prev === "error" ? "error" : "idle"));
-      // Also reached on a clean server-initiated close (no preceding
-      // onerror) — same reasoning as above: don't leave the mic live with
-      // no session behind it. teardownRef is reentrancy-safe (nulls its
-      // refs before closing anything), so a second call here after onerror
-      // already ran is a harmless no-op.
       teardownRef.current();
     };
     socket.onmessage = (event: MessageEvent) => {
@@ -200,12 +241,18 @@ export function useSession(token: string | null) {
         if (framingFrame) {
           setFramingText(framingFrame.text);
           setConfidenceLow(framingFrame.confidenceLow);
+          setUsingCachedGuidance(false);
           return;
         }
         const frame = parseControlFrame(event.data);
         if (frame) {
           setCaptionText(frame.text);
           setGuardrailDecision(frame.guardrailDecision);
+          setUsingCachedGuidance(false);
+          // Framing text is deliberately not cached — see this task's plan
+          // note on why stale camera guidance would be actively misleading
+          // in a way stale spoken guidance is not.
+          saveCachedGuidance({ captionText: frame.text, framingText: null });
           setPendingConfirmation(
             frame.guardrailDecision === "requires_confirmation" ? { stepId: frame.stepId, text: frame.text } : null
           );
@@ -220,9 +267,32 @@ export function useSession(token: string | null) {
         // aloud to a screen reader.
       }
     };
-  }, [token, beginCapture, beginCameraCapture]);
+  }, [beginCapture, beginCameraCapture]);
+
+  const start = useCallback(async () => {
+    if (!token) {
+      setStatus("error");
+      setErrorMessage("You need to be signed in before starting a session.");
+      return;
+    }
+
+    // Starting again while a previous session's socket/mic/player are still
+    // around (e.g. clicking Start after an unclean disconnect) must not
+    // silently orphan them — each leaked AudioContext counts against the
+    // browser's per-page cap until new ones can no longer be created.
+    teardownRef.current();
+    intentionalCloseRef.current = false;
+    reachedConnectedRef.current = false;
+    reconnectAttemptRef.current = 0;
+
+    setStatus("connecting");
+    setErrorMessage(null);
+    playerRef.current = new PcmPlayer();
+    establishConnection(token);
+  }, [token, establishConnection]);
 
   const stop = useCallback(() => {
+    intentionalCloseRef.current = true;
     teardownRef.current();
     setStatus("idle");
     setErrorMessage(null);
@@ -247,7 +317,7 @@ export function useSession(token: string | null) {
   }, [pendingFieldRequest]);
 
   return {
-    status, errorMessage, captionText, guardrailDecision, framingText, confidenceLow,
+    status, errorMessage, captionText, guardrailDecision, framingText, confidenceLow, usingCachedGuidance,
     pendingConfirmation, resolveConfirmation, pendingFieldRequest, resolveFieldInput, start, stop,
   };
 }
