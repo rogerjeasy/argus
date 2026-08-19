@@ -40,6 +40,12 @@ class RegularRoute(BaseModel):
     goal_text: str
 
 
+class DailyBriefing(BaseModel):
+    summary_text: str
+    route_description: str
+    status: str = "pending_delivery"
+
+
 class PersonalAdminProfile(BaseModel):
     known_providers: list[ProviderContact] = []
     standing_payment_threshold_cents: int | None = None
@@ -100,6 +106,27 @@ class MemoryAgent:
             self._regular_routes_doc(uid).set, {"routes": [r.model_dump() for r in updated]}
         )
 
+    async def store_daily_briefing(self, uid: str, briefing: "DailyBriefing") -> str:
+        import uuid
+        briefing_id = str(uuid.uuid4())
+        await run_in_threadpool(
+            self._daily_briefings_collection(uid).document(briefing_id).set, briefing.model_dump()
+        )
+        return briefing_id
+
+    async def get_pending_daily_briefing(self, uid: str) -> "tuple[str, DailyBriefing] | None":
+        snapshots = await run_in_threadpool(self._daily_briefings_collection(uid).stream)
+        for snapshot in snapshots:
+            data = snapshot.to_dict()
+            if data.get("status") == "pending_delivery":
+                return snapshot.id, DailyBriefing(**data)
+        return None
+
+    async def mark_daily_briefing_delivered(self, uid: str, briefing_id: str) -> None:
+        await run_in_threadpool(
+            self._daily_briefings_collection(uid).document(briefing_id).update, {"status": "delivered"}
+        )
+
     def _confirmation_history_collection(self, uid: str):
         return self._db.collection("argus_users").document(uid).collection("confirmation_history")
 
@@ -128,6 +155,9 @@ class MemoryAgent:
 
     def _calibration_proposals_collection(self, uid: str):
         return self._db.collection("argus_users").document(uid).collection("calibration_proposals")
+
+    def _daily_briefings_collection(self, uid: str):
+        return self._db.collection("argus_users").document(uid).collection("daily_briefings")
 
     async def store_calibration_proposal(self, uid: str, proposal: "CalibrationProposal") -> str:
         import uuid

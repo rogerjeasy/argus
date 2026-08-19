@@ -251,3 +251,41 @@ async def test_add_regular_route_appends_to_existing_routes() -> None:
 
     assert len(routes) == 2
     assert routes[1].domain_id == "transit-mbta"
+
+
+@pytest.mark.asyncio
+async def test_store_and_get_pending_daily_briefing_round_trips() -> None:
+    from app.agents.memory import DailyBriefing
+
+    agent = MemoryAgent(FakeFirestoreClient())
+    briefing = DailyBriefing(
+        summary_text="Heads up — there's a delay on your usual train from Zürich HB.",
+        route_description="get me to Zürich HB",
+    )
+
+    briefing_id = await agent.store_daily_briefing("u1", briefing)
+    pending = await agent.get_pending_daily_briefing("u1")
+
+    assert pending is not None
+    got_id, got_briefing = pending
+    assert got_id == briefing_id
+    assert got_briefing == briefing
+
+
+@pytest.mark.asyncio
+async def test_get_pending_daily_briefing_returns_none_when_none_pending() -> None:
+    agent = MemoryAgent(FakeFirestoreClient())
+    assert await agent.get_pending_daily_briefing("u1") is None
+
+
+@pytest.mark.asyncio
+async def test_mark_daily_briefing_delivered_removes_it_from_pending() -> None:
+    from app.agents.memory import DailyBriefing
+
+    agent = MemoryAgent(FakeFirestoreClient())
+    briefing = DailyBriefing(summary_text="Heads up about your train.", route_description="get me to Zürich HB")
+    briefing_id = await agent.store_daily_briefing("u1", briefing)
+
+    await agent.mark_daily_briefing_delivered("u1", briefing_id)
+
+    assert await agent.get_pending_daily_briefing("u1") is None
