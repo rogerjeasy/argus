@@ -37,5 +37,11 @@ firestore.indexes.json
 # Docs/specs stay local until explicitly committed
 docs/
 
+# Real (non-synthetic) recorded test fixtures — large, environment-specific
+# media files (Phase 5 design doc §4/§5); never committed. The SOP doc and
+# the test harnesses that read them are real code and stay tracked.
+backend/app/tests/real_fixtures/**
+!backend/app/tests/real_fixtures/README.md
+
 
 .superpowers/
