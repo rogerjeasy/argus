@@ -21,4 +21,13 @@ describe("AuthShell", () => {
     const brandCopy = screen.getByText(/seeing-eye copilot/i);
     expect(brandCopy.closest("div.hidden")).not.toBeNull();
   });
+
+  it("gives a visitor landing directly here a way to switch theme", () => {
+    render(
+      <AuthShell>
+        <div>content</div>
+      </AuthShell>
+    );
+    expect(screen.getByRole("button", { name: /theme/i })).toBeInTheDocument();
+  });
 });
