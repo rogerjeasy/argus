@@ -4,9 +4,10 @@ from starlette.concurrency import run_in_threadpool
 
 
 class TwilioClient(Protocol):
-    async def place_call(self, *, to: str, from_: str, twiml: str, status_callback_url: str) -> str: ...
+    async def place_call(self, *, to: str, from_: str, twiml: str, status_callback_url: str | None = None) -> str: ...
     async def send_dtmf(self, *, call_sid: str, digits: str) -> None: ...
     async def hang_up(self, *, call_sid: str) -> None: ...
+    async def send_sms(self, *, to: str, from_: str, body: str) -> str: ...
 
 
 class RealTwilioClient:
@@ -22,13 +23,12 @@ class RealTwilioClient:
             from twilio.rest import Client
             self._client = Client(account_sid, auth_token)
 
-    async def place_call(self, *, to: str, from_: str, twiml: str, status_callback_url: str) -> str:
-        call = await run_in_threadpool(
-            self._client.calls.create,
-            to=to, from_=from_, twiml=twiml,
-            status_callback=status_callback_url,
-            status_callback_event=["initiated", "answered", "completed"],
-        )
+    async def place_call(self, *, to: str, from_: str, twiml: str, status_callback_url: str | None = None) -> str:
+        kwargs: dict = {"to": to, "from_": from_, "twiml": twiml}
+        if status_callback_url is not None:
+            kwargs["status_callback"] = status_callback_url
+            kwargs["status_callback_event"] = ["initiated", "answered", "completed"]
+        call = await run_in_threadpool(self._client.calls.create, **kwargs)
         return call.sid
 
     async def send_dtmf(self, *, call_sid: str, digits: str) -> None:
@@ -39,3 +39,7 @@ class RealTwilioClient:
 
     async def hang_up(self, *, call_sid: str) -> None:
         await run_in_threadpool(self._client.calls(call_sid).update, status="completed")
+
+    async def send_sms(self, *, to: str, from_: str, body: str) -> str:
+        message = await run_in_threadpool(self._client.messages.create, to=to, from_=from_, body=body)
+        return message.sid

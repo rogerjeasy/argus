@@ -7,8 +7,9 @@ class FakeTwilioClient:
         self.placed_calls: list[dict] = []
         self.dtmf_sent: list[dict] = []
         self.hangups: list[str] = []
+        self.sms_sent: list[dict] = []
 
-    async def place_call(self, *, to: str, from_: str, twiml: str, status_callback_url: str) -> str:
+    async def place_call(self, *, to: str, from_: str, twiml: str, status_callback_url: str | None = None) -> str:
         self.placed_calls.append({"to": to, "from_": from_, "twiml": twiml, "status_callback_url": status_callback_url})
         return self.next_call_sid
 
@@ -17,3 +18,7 @@ class FakeTwilioClient:
 
     async def hang_up(self, *, call_sid: str) -> None:
         self.hangups.append(call_sid)
+
+    async def send_sms(self, *, to: str, from_: str, body: str) -> str:
+        self.sms_sent.append({"to": to, "from_": from_, "body": body})
+        return "SM_fake"

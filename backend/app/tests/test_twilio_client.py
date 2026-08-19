@@ -49,3 +49,31 @@ async def test_hang_up_updates_the_call_status_to_completed() -> None:
 
     fake_sdk_client.calls.assert_called_with("CA123")
     calls_resource.update.assert_called_with(status="completed")
+
+
+@pytest.mark.asyncio
+async def test_send_sms_creates_a_message_with_the_given_body() -> None:
+    fake_sdk_client = MagicMock()
+    fake_sdk_client.messages.create.return_value = MagicMock(sid="SM123")
+
+    client = RealTwilioClient("sid", "token", sdk_client=fake_sdk_client)
+    sid = await client.send_sms(to="+15559990000", from_="+15551234567", body="Argus alert: test")
+
+    assert sid == "SM123"
+    _, kwargs = fake_sdk_client.messages.create.call_args
+    assert kwargs["to"] == "+15559990000"
+    assert kwargs["from_"] == "+15551234567"
+    assert kwargs["body"] == "Argus alert: test"
+
+
+@pytest.mark.asyncio
+async def test_place_call_omits_status_callback_when_none() -> None:
+    fake_sdk_client = MagicMock()
+    fake_sdk_client.calls.create.return_value = MagicMock(sid="CA123")
+
+    client = RealTwilioClient("sid", "token", sdk_client=fake_sdk_client)
+    await client.place_call(to="+15559990000", from_="+15551234567", twiml="<Response></Response>")
+
+    _, kwargs = fake_sdk_client.calls.create.call_args
+    assert "status_callback" not in kwargs
+    assert "status_callback_event" not in kwargs
