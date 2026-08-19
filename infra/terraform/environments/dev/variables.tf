@@ -35,3 +35,10 @@ variable "calibration_job_shared_secret" {
   default     = ""
   sensitive   = true
 }
+
+variable "daily_briefing_job_shared_secret" {
+  type        = string
+  description = "Populated manually post-apply, same convention as calibration_job_shared_secret."
+  default     = ""
+  sensitive   = true
+}
