@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     #: rejects (fail-closed, not fail-open) — see app/api/calibration.py.
     calibration_job_shared_secret: str = ""
 
+    #: Same fail-closed convention as calibration_job_shared_secret above —
+    #: invokes /internal/run-daily-briefing. Empty means the endpoint always
+    #: rejects — see app/api/daily_briefing.py.
+    daily_briefing_job_shared_secret: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:
