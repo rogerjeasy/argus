@@ -43,7 +43,11 @@ export default function SignUpPage() {
           <h1 className="text-3xl font-semibold tracking-tight text-foreground">Create your account</h1>
           <p className="text-muted-foreground">Set up Argus in under a minute.</p>
         </div>
-        <GoogleSignInButton loading={googleLoading} onClick={() => void handleGoogleSignIn()}>
+        <GoogleSignInButton
+          loading={googleLoading}
+          loadingText="Signing up…"
+          onClick={() => void handleGoogleSignIn()}
+        >
           Continue with Google
         </GoogleSignInButton>
         <AuthFormError message={googleError} />

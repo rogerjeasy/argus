@@ -43,7 +43,11 @@ export default function SignInPage() {
           <h1 className="text-3xl font-semibold tracking-tight text-foreground">Welcome back</h1>
           <p className="text-muted-foreground">Sign in to continue to Argus.</p>
         </div>
-        <GoogleSignInButton loading={googleLoading} onClick={() => void handleGoogleSignIn()}>
+        <GoogleSignInButton
+          loading={googleLoading}
+          loadingText="Signing in…"
+          onClick={() => void handleGoogleSignIn()}
+        >
           Continue with Google
         </GoogleSignInButton>
         <AuthFormError message={googleError} />

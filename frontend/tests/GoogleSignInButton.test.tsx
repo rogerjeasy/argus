@@ -13,4 +13,26 @@ describe("GoogleSignInButton", () => {
     render(<GoogleSignInButton loading>Continue with Google</GoogleSignInButton>);
     expect(screen.getByRole("button", { name: "Continue with Google" })).toBeDisabled();
   });
+
+  it("swaps to loadingText while loading, when one is given", () => {
+    render(
+      <GoogleSignInButton loading loadingText="Signing in…">
+        Continue with Google
+      </GoogleSignInButton>
+    );
+    expect(screen.getByRole("button", { name: "Signing in…" })).toBeInTheDocument();
+    expect(screen.queryByText("Continue with Google")).not.toBeInTheDocument();
+  });
+
+  it("shows the real label again once loading finishes", () => {
+    const { rerender } = render(
+      <GoogleSignInButton loading loadingText="Signing in…">
+        Continue with Google
+      </GoogleSignInButton>
+    );
+    rerender(
+      <GoogleSignInButton loadingText="Signing in…">Continue with Google</GoogleSignInButton>
+    );
+    expect(screen.getByRole("button", { name: "Continue with Google" })).toBeInTheDocument();
+  });
 });
