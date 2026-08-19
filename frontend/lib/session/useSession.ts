@@ -17,12 +17,21 @@ import { loadCachedGuidance, saveCachedGuidance } from "./cache";
 
 type SessionStatus = "idle" | "connecting" | "connected" | "reconnecting" | "error";
 
+export interface TranscriptEntry {
+  id: number;
+  text: string;
+  language: string;
+}
+
 const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_BASE_URL ?? "ws://localhost:8000";
 
 /** Client-to-server binary frames carry a 1-byte type prefix — must match
  * FRAME_TYPE_AUDIO/FRAME_TYPE_VIDEO in backend/app/ws/session.py exactly. */
 const FRAME_TYPE_AUDIO = 1;
 const FRAME_TYPE_VIDEO = 2;
+
+const MAX_TRANSCRIPT_ENTRIES = 20;
+const LEVEL_DECAY_MS = 400;
 
 /**
  * Owns one voice session: the authenticated WebSocket, the microphone feeding
@@ -48,6 +57,9 @@ export function useSession(token: string | null) {
   const [pendingConfirmation, setPendingConfirmation] = useState<{ stepId: string; text: string } | null>(null);
   const [pendingFieldRequest, setPendingFieldRequest] = useState<{ stepId: string; text: string; label: string } | null>(null);
   const [usingCachedGuidance, setUsingCachedGuidance] = useState(false);
+  const [micLevel, setMicLevel] = useState(0);
+  const [playbackLevel, setPlaybackLevel] = useState(0);
+  const [transcriptHistory, setTranscriptHistory] = useState<TranscriptEntry[]>([]);
 
   const socketRef = useRef<WebSocket | null>(null);
   const captureRef = useRef<MicrophoneCapture | null>(null);
@@ -57,6 +69,21 @@ export function useSession(token: string | null) {
   const intentionalCloseRef = useRef(false);
   const reachedConnectedRef = useRef(false);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const transcriptIdRef = useRef(0);
+  const micLevelDecayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const playbackLevelDecayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleMicLevel = useCallback((level: number) => {
+    setMicLevel(level);
+    if (micLevelDecayRef.current) clearTimeout(micLevelDecayRef.current);
+    micLevelDecayRef.current = setTimeout(() => setMicLevel(0), LEVEL_DECAY_MS);
+  }, []);
+
+  const handlePlaybackLevel = useCallback((level: number) => {
+    setPlaybackLevel(level);
+    if (playbackLevelDecayRef.current) clearTimeout(playbackLevelDecayRef.current);
+    playbackLevelDecayRef.current = setTimeout(() => setPlaybackLevel(0), LEVEL_DECAY_MS);
+  }, []);
 
   // Not a useCallback: the unmount effect below must not re-run when this
   // changes, and every caller is inside this hook anyway.
@@ -66,6 +93,16 @@ export function useSession(token: string | null) {
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
     }
+    if (micLevelDecayRef.current) {
+      clearTimeout(micLevelDecayRef.current);
+      micLevelDecayRef.current = null;
+    }
+    if (playbackLevelDecayRef.current) {
+      clearTimeout(playbackLevelDecayRef.current);
+      playbackLevelDecayRef.current = null;
+    }
+    setMicLevel(0);
+    setPlaybackLevel(0);
     setUsingCachedGuidance(false);
     captureRef.current?.stop();
     captureRef.current = null;
@@ -90,6 +127,8 @@ export function useSession(token: string | null) {
     setConfidenceLow(false);
     setPendingConfirmation(null);
     setPendingFieldRequest(null);
+    setTranscriptHistory([]);
+    transcriptIdRef.current = 0;
   };
 
   useEffect(() => {
@@ -117,7 +156,7 @@ export function useSession(token: string | null) {
           prefixed.set(new Uint8Array(chunk), 1);
           current.send(prefixed.buffer);
         }
-      });
+      }, handleMicLevel);
       // If the session was stopped while the permission prompt was open,
       // discard the capture we just started instead of leaking the mic.
       if (socketRef.current !== socket) {
@@ -133,7 +172,7 @@ export function useSession(token: string | null) {
       setErrorMessage(describeMicrophoneError(error));
       teardownRef.current();
     }
-  }, []);
+  }, [handleMicLevel]);
 
   const beginCameraCapture = useCallback(async (socket: WebSocket) => {
     if (cameraRef.current) return; // same idempotency reasoning as beginCapture
@@ -166,7 +205,7 @@ export function useSession(token: string | null) {
     // access to the bytes, and Blob would force an async round trip per frame.
     socket.binaryType = "arraybuffer";
     socketRef.current = socket;
-    if (!playerRef.current) playerRef.current = new PcmPlayer();
+    if (!playerRef.current) playerRef.current = new PcmPlayer(handlePlaybackLevel);
 
     socket.onopen = () => {
       setStatus("connected");
@@ -253,6 +292,11 @@ export function useSession(token: string | null) {
           setCaptionLanguage(frame.language);
           setGuardrailDecision(frame.guardrailDecision);
           setUsingCachedGuidance(false);
+          const entryId = transcriptIdRef.current;
+          transcriptIdRef.current += 1;
+          setTranscriptHistory((prev) =>
+            [...prev, { id: entryId, text: frame.text, language: frame.language }].slice(-MAX_TRANSCRIPT_ENTRIES)
+          );
           // Framing text is deliberately not cached — see this task's plan
           // note on why stale camera guidance would be actively misleading
           // in a way stale spoken guidance is not.
@@ -271,7 +315,7 @@ export function useSession(token: string | null) {
         // aloud to a screen reader.
       }
     };
-  }, [beginCapture, beginCameraCapture]);
+  }, [beginCapture, beginCameraCapture, handlePlaybackLevel]);
 
   const start = useCallback(async () => {
     if (!token) {
@@ -291,9 +335,9 @@ export function useSession(token: string | null) {
 
     setStatus("connecting");
     setErrorMessage(null);
-    playerRef.current = new PcmPlayer();
+    playerRef.current = new PcmPlayer(handlePlaybackLevel);
     establishConnection(token);
-  }, [token, establishConnection]);
+  }, [token, establishConnection, handlePlaybackLevel]);
 
   const stop = useCallback(() => {
     intentionalCloseRef.current = true;
@@ -322,6 +366,7 @@ export function useSession(token: string | null) {
 
   return {
     status, errorMessage, captionText, captionLanguage, guardrailDecision, framingText, confidenceLow, usingCachedGuidance,
+    micLevel, playbackLevel, transcriptHistory,
     pendingConfirmation, resolveConfirmation, pendingFieldRequest, resolveFieldInput, start, stop,
   };
 }

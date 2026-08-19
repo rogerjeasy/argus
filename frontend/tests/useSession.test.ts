@@ -8,12 +8,16 @@ import { RECONNECT_MAX_ATTEMPTS } from "../lib/session/reconnect";
 // audio.test.ts. Here it is mocked so these tests can be about the *wiring*:
 // that the mic is started when the socket opens, that its frames reach the
 // socket, that inbound frames reach playback, and that a refusal is surfaced.
-const { startMicrophoneCapture, play, close, capturedOnChunk, stopCapture } = vi.hoisted(() => ({
+const {
+  startMicrophoneCapture, play, close, capturedOnChunk, capturedOnMicLevel, capturedOnPlaybackLevel, stopCapture,
+} = vi.hoisted(() => ({
   startMicrophoneCapture: vi.fn(),
   play: vi.fn(),
   close: vi.fn(),
   stopCapture: vi.fn(),
   capturedOnChunk: { current: null as ((chunk: ArrayBuffer) => void) | null },
+  capturedOnMicLevel: { current: null as ((level: number) => void) | null },
+  capturedOnPlaybackLevel: { current: null as ((level: number) => void) | null },
 }));
 
 vi.mock("../lib/session/audio", async (importOriginal) => {
@@ -22,6 +26,9 @@ vi.mock("../lib/session/audio", async (importOriginal) => {
     ...actual,
     startMicrophoneCapture,
     PcmPlayer: class {
+      constructor(onLevel?: (level: number) => void) {
+        capturedOnPlaybackLevel.current = onLevel ?? null;
+      }
       play = play;
       close = close;
     },
@@ -76,11 +83,16 @@ async function startAndOpen(result: { current: ReturnType<typeof useSession> }) 
 beforeEach(() => {
   FakeWebSocket.instances = [];
   capturedOnChunk.current = null;
+  capturedOnMicLevel.current = null;
+  capturedOnPlaybackLevel.current = null;
   startMicrophoneCapture.mockReset();
-  startMicrophoneCapture.mockImplementation(async (onChunk: (chunk: ArrayBuffer) => void) => {
-    capturedOnChunk.current = onChunk;
-    return { stop: stopCapture };
-  });
+  startMicrophoneCapture.mockImplementation(
+    async (onChunk: (chunk: ArrayBuffer) => void, onLevel?: (level: number) => void) => {
+      capturedOnChunk.current = onChunk;
+      capturedOnMicLevel.current = onLevel ?? null;
+      return { stop: stopCapture };
+    }
+  );
   play.mockReset();
   close.mockReset();
   stopCapture.mockReset();
@@ -596,5 +608,125 @@ describe("useSession playback", () => {
     });
 
     expect(result.current.pendingConfirmation).toBeNull();
+  });
+});
+
+describe("useSession audio levels and transcript history", () => {
+  it("starts at zero mic and playback level", () => {
+    const { result } = renderHook(() => useSession("fake-token"));
+    expect(result.current.micLevel).toBe(0);
+    expect(result.current.playbackLevel).toBe(0);
+  });
+
+  it("reflects a reported mic level", async () => {
+    const { result } = renderHook(() => useSession("fake-token"));
+    await startAndOpen(result);
+    await waitFor(() => expect(capturedOnMicLevel.current).not.toBeNull());
+
+    act(() => {
+      capturedOnMicLevel.current?.(0.6);
+    });
+
+    expect(result.current.micLevel).toBe(0.6);
+  });
+
+  it("decays the mic level back to zero after a pause in reporting", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const { result } = renderHook(() => useSession("fake-token"));
+    await startAndOpen(result);
+    await waitFor(() => expect(capturedOnMicLevel.current).not.toBeNull());
+
+    act(() => {
+      capturedOnMicLevel.current?.(0.6);
+    });
+    expect(result.current.micLevel).toBe(0.6);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(result.current.micLevel).toBe(0);
+    vi.useRealTimers();
+  });
+
+  it("reflects a reported playback level", async () => {
+    const { result } = renderHook(() => useSession("fake-token"));
+    await startAndOpen(result);
+    await waitFor(() => expect(capturedOnPlaybackLevel.current).not.toBeNull());
+
+    act(() => {
+      capturedOnPlaybackLevel.current?.(0.8);
+    });
+
+    expect(result.current.playbackLevel).toBe(0.8);
+  });
+
+  it("clears both levels on stop()", async () => {
+    const { result } = renderHook(() => useSession("fake-token"));
+    await startAndOpen(result);
+    await waitFor(() => expect(capturedOnMicLevel.current).not.toBeNull());
+    act(() => {
+      capturedOnMicLevel.current?.(0.5);
+      capturedOnPlaybackLevel.current?.(0.5);
+    });
+
+    act(() => {
+      result.current.stop();
+    });
+
+    expect(result.current.micLevel).toBe(0);
+    expect(result.current.playbackLevel).toBe(0);
+  });
+
+  it("appends each guidance frame's text to transcriptHistory with a stable id", async () => {
+    const { result } = renderHook(() => useSession("fake-token"));
+    await startAndOpen(result);
+
+    act(() => {
+      latestSocket().onmessage?.({
+        data: JSON.stringify({ type: "guidance", text: "Head to platform 4.", guardrail_decision: "approved", step_id: "step-1" }),
+      });
+    });
+    act(() => {
+      latestSocket().onmessage?.({
+        data: JSON.stringify({ type: "guidance", text: "Turn left.", guardrail_decision: "approved", step_id: "step-2" }),
+      });
+    });
+
+    expect(result.current.transcriptHistory.map((entry) => entry.text)).toEqual(["Head to platform 4.", "Turn left."]);
+    expect(result.current.transcriptHistory[0].id).not.toBe(result.current.transcriptHistory[1].id);
+  });
+
+  it("caps transcriptHistory at 20 entries, dropping the oldest first", async () => {
+    const { result } = renderHook(() => useSession("fake-token"));
+    await startAndOpen(result);
+
+    for (let i = 0; i < 25; i += 1) {
+      act(() => {
+        latestSocket().onmessage?.({
+          data: JSON.stringify({ type: "guidance", text: `line ${i}`, guardrail_decision: "approved", step_id: `step-${i}` }),
+        });
+      });
+    }
+
+    expect(result.current.transcriptHistory).toHaveLength(20);
+    expect(result.current.transcriptHistory[0].text).toBe("line 5");
+    expect(result.current.transcriptHistory[19].text).toBe("line 24");
+  });
+
+  it("clears transcriptHistory on stop()", async () => {
+    const { result } = renderHook(() => useSession("fake-token"));
+    await startAndOpen(result);
+    act(() => {
+      latestSocket().onmessage?.({
+        data: JSON.stringify({ type: "guidance", text: "Head to platform 4.", guardrail_decision: "approved", step_id: "step-1" }),
+      });
+    });
+    expect(result.current.transcriptHistory).toHaveLength(1);
+
+    act(() => {
+      result.current.stop();
+    });
+
+    expect(result.current.transcriptHistory).toHaveLength(0);
   });
 });
