@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",
-    "gen:api": "openapi-typescript http://localhost:8000/openapi.json -o lib/api/schema.ts"
+    "gen:api": "openapi-typescript http://localhost:8000/openapi.json -o lib/api/schema.ts",
+    "gen:icons": "node scripts/generate-app-icons.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
@@ -43,6 +44,7 @@
     "eslint-config-next": "^15.0.0",
     "jsdom": "^25.0.0",
     "openapi-typescript": "^7.4.0",
+    "sharp": "^0.35.3",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.6.0",
     "vite-tsconfig-paths": "^5.1.4",
