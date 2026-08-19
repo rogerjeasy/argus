@@ -4,7 +4,7 @@ from app.agents.escalation import EscalationAgent, LoggingNotificationSender
 from app.agents.grounding import GroundingAgent
 from app.agents.guardrail import GuardrailAgent
 from app.agents.guidance import GuidanceAgent
-from app.agents.memory import MemoryAgent
+from app.agents.memory import DailyBriefing, MemoryAgent
 from app.agents.orchestrator import TaskOrchestrator
 from app.agents.perception import PerceptionAgent
 from app.agents.planner import PlannerAgent
@@ -853,6 +853,34 @@ async def test_resolve_confirmation_does_not_double_record_confirmation_history_
 
     history = await orch._memory.get_confirmation_history("u1", category="pharmacy_refill", provider="cvs-main-st")
     assert history == []
+
+
+@pytest.mark.asyncio
+async def test_check_for_pending_daily_briefing_speaks_it_and_marks_it_delivered() -> None:
+    source = FakeGroundingSource()
+    source.set_answer("platform", "4")
+    orch = _build_orchestrator(source, planner_response=_planner_json())
+    await orch._memory.store_daily_briefing(
+        "u1", DailyBriefing(summary_text="Heads up about your train.", route_description="get me to Zürich HB")
+    )
+
+    result = await orch.check_for_pending_daily_briefing("s1", "u1")
+
+    assert result is not None
+    assert result.guidance.text == "Heads up about your train."
+    assert result.guardrail.decision == "approved"
+
+    # Delivered — a second check in the same or a later session finds nothing.
+    assert await orch.check_for_pending_daily_briefing("s1", "u1") is None
+
+
+@pytest.mark.asyncio
+async def test_check_for_pending_daily_briefing_returns_none_when_nothing_pending() -> None:
+    source = FakeGroundingSource()
+    source.set_answer("platform", "4")
+    orch = _build_orchestrator(source, planner_response=_planner_json())
+
+    assert await orch.check_for_pending_daily_briefing("s1", "u1") is None
 
 
 @pytest.mark.asyncio

@@ -363,6 +363,26 @@ class TaskOrchestrator:
         decision = GuardrailDecision(step_id=proposal_id, decision="requires_confirmation", reason="pending calibration proposal")
         return OrchestrationResult(guidance=guidance_output, guardrail=decision)
 
+    async def check_for_pending_daily_briefing(self, session_id: str, uid: str) -> OrchestrationResult | None:
+        pending = await self._memory.get_pending_daily_briefing(uid)
+        if pending is None:
+            return None
+        briefing_id, briefing = pending
+        await self._memory.mark_daily_briefing_delivered(uid, briefing_id)
+
+        guidance_output = GuidanceOutput(
+            session_id=session_id, text=briefing.summary_text, haptic_pattern=None, earcon=None,
+        )
+        # "approved" is the closest honest fit among GuardrailDecision's four
+        # allowed values (app/models/agent_events.py) — nothing here was
+        # confirmed, denied, or needs a field; it's simply delivered. This
+        # reuses the existing "guidance" WS frame unchanged, matching the
+        # design doc §8's "no new UI" requirement — a new frame type isn't
+        # an option either (parseControlFrame requires guardrail_decision as
+        # a non-null string).
+        decision = GuardrailDecision(step_id=briefing_id, decision="approved", reason="daily briefing delivered")
+        return OrchestrationResult(guidance=guidance_output, guardrail=decision)
+
     async def resolve_confirmation(self, session_id: str, uid: str, accepted: bool) -> OrchestrationResult | None:
         pending = self._pending_input.get(session_id)
         if pending is None or pending.mode not in ("confirm", "calibration"):
