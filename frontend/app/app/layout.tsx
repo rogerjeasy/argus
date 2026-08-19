@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
+import { AppShell } from "@/components/AppShell";
 
 export const metadata: Metadata = {
-  title: "Your session — Argus",
+  title: "Argus",
 };
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  return children;
+  return <AppShell>{children}</AppShell>;
 }
