@@ -246,6 +246,28 @@ class MemoryAgent:
             {"summary": summary, "recorded_at": datetime.now(timezone.utc).isoformat()},
         )
 
+    async def record_session_summary(
+        self, *, uid: str, session_id: str, summary: str, started_at: str, ended_at: str
+    ) -> None:
+        """The end-of-session record the History page reads — one row per
+        conversation, written once the live session closes."""
+        await run_in_threadpool(
+            self._task_history_doc(uid, session_id).set,
+            {
+                "summary": summary,
+                "started_at": started_at,
+                "ended_at": ended_at,
+                "recorded_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
+    async def get_session_history(self, uid: str, limit: int = 20) -> list[dict]:
+        collection = self._db.collection("argus_users").document(uid).collection("task_history")
+        snapshots = await run_in_threadpool(list, collection.stream())
+        rows = [{"session_id": s.id, **(s.to_dict() or {})} for s in snapshots]
+        rows.sort(key=lambda r: r.get("recorded_at", ""), reverse=True)
+        return rows[:limit]
+
     async def get_profile(self, uid: str) -> PersonalAdminProfile:
         snapshot = await run_in_threadpool(self._profile_doc(uid).get)
         if not snapshot.exists:

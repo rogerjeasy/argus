@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.calibration import router as calibration_router
 from app.api.daily_briefing import router as daily_briefing_router
 from app.api.health import router as health_router
+from app.api.history import router as history_router
 from app.api.webhooks import internal_router, router as webhooks_router
 from app.api.settings import router as settings_router
 from app.api.trusted_contact import router as trusted_contact_router
@@ -30,6 +31,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(health_router)
+    app.include_router(history_router)
     app.include_router(settings_router)
     app.include_router(trusted_contact_router)
     app.include_router(users_router)
