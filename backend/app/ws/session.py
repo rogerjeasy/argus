@@ -135,7 +135,13 @@ async def build_orchestrator(db: firestore.Client) -> TaskOrchestrator:
     indoor_wayfinding_domain = await get_indoor_wayfinding_domain(settings)
     router_runner = LlmAgentRunner(
         agent=LlmAgent(
-            name="domain_router", model=_reasoning_model(settings), instruction="Classify the goal into one domain id."
+            name="domain_router",
+            model=_reasoning_model(settings),
+            instruction=(
+                "You classify a user's spoken request into one task domain. "
+                "Reply with exactly one domain id from the list you are given, "
+                "or NONE if the request fits none of them. Output that token only."
+            ),
         )
     )
     planner_runner = LlmAgentRunner(
@@ -275,6 +281,10 @@ async def session_endpoint(
                 }))
 
         async def _handle_transcript(text: str) -> None:
+            logger.info(
+                "ws_session_transcript",
+                extra={"session_id": session_id, "text": text},
+            )
             goal = PerceivedGoal(session_id=session_id, uid=user.uid, raw_text=text)
             try:
                 result = await orchestrator.handle_goal(goal)
