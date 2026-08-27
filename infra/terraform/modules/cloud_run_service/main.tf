@@ -21,9 +21,12 @@ resource "google_cloud_run_v2_service" "this" {
 
       resources {
         limits = {
-          cpu    = "1"
-          memory = "512Mi"
+          cpu    = var.cpu
+          memory = var.memory
         }
+        # Full CPU during startup so cold starts finish the heavy one-time work
+        # (GTFS feed load, agent framework init) before the request times out.
+        startup_cpu_boost = true
       }
 
       dynamic "env" {
