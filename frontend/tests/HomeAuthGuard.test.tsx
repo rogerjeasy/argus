@@ -10,7 +10,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("../lib/auth/firebase", () => ({
-  firebaseAuth: {},
+  getFirebaseAuth: () => ({}),
 }));
 
 let authCallback: ((user: unknown) => void) | null = null;
@@ -57,6 +57,6 @@ describe("HomeAuthGuard", () => {
   it("redirects to /app once auth resolves to a signed-in user", async () => {
     renderGuard();
     authCallback?.({ uid: "user-1" });
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("/app"));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/dashboard"));
   });
 });

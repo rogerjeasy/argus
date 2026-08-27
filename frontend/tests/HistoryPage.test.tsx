@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { expect, test } from "vitest";
-import HistoryPage from "@/app/app/history/page";
+import HistoryPage from "@/app/dashboard/history/page";
 
 test("shows a real empty state, not fabricated history", () => {
   render(<HistoryPage />);

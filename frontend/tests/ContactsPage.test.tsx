@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
-import ContactsPage from "@/app/app/contacts/page";
+import ContactsPage from "@/app/dashboard/contacts/page";
 import { useIdToken } from "@/lib/auth/useIdToken";
 import { getTrustedContact, updateTrustedContact } from "@/lib/api/trustedContact";
 

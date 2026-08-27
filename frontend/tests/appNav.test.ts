@@ -3,7 +3,7 @@ import { APP_NAV_ITEMS } from "@/lib/app-nav";
 
 describe("APP_NAV_ITEMS", () => {
   it("has exactly the 4 real, data-backed destinations", () => {
-    expect(APP_NAV_ITEMS.map((item) => item.href)).toEqual(["/app", "/app/history", "/app/settings", "/app/contacts"]);
+    expect(APP_NAV_ITEMS.map((item) => item.href)).toEqual(["/dashboard", "/dashboard/history", "/dashboard/settings", "/dashboard/contacts"]);
   });
 
   it("every item has a non-empty label and an icon", () => {

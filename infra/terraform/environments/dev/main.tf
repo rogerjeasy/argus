@@ -11,6 +11,10 @@ module "apis" {
     "artifactregistry.googleapis.com",
     "storage.googleapis.com",
     "cloudscheduler.googleapis.com",
+    "cloudtasks.googleapis.com",
+    "cloudkms.googleapis.com",
+    "firebase.googleapis.com",
+    "identitytoolkit.googleapis.com",
   ]
 }
 
@@ -33,6 +37,9 @@ module "backend_service_account" {
     "roles/aiplatform.user",
     "roles/pubsub.publisher",
     "roles/cloudtrace.agent",
+    # Enqueue Call Agent retry tasks. cryptoKeyEncrypterDecrypter is NOT here:
+    # it is granted key-scoped by module.profile_kms rather than project-wide.
+    "roles/cloudtasks.enqueuer",
   ]
   depends_on = [module.apis]
 }
@@ -58,6 +65,25 @@ module "events_topic" {
   project_id = var.project_id
   name       = "argus-events"
   depends_on = [module.apis]
+}
+
+module "call_retry_queue" {
+  source     = "../../modules/cloud_tasks_queue"
+  project_id = var.project_id
+  location   = var.region
+  name       = "argus-call-retries" # matches Settings.cloud_tasks_queue's default
+  depends_on = [module.apis]
+}
+
+module "profile_kms" {
+  source          = "../../modules/kms_crypto_key"
+  project_id      = var.project_id
+  location        = var.region
+  key_ring_name   = "argus"
+  crypto_key_name = "personal-admin-profile"
+  # Key-scoped, so the backend can decrypt these fields and nothing else.
+  encrypter_decrypters = ["serviceAccount:${module.backend_service_account.email}"]
+  depends_on           = [module.apis, module.backend_service_account]
 }
 
 # No Secret Manager secrets are declared here on purpose. The backend
@@ -91,6 +117,36 @@ module "backend_service" {
     PERSONAL_ADMIN_STORAGE_BUCKET    = module.personal_admin_forms_bucket.name
     CALIBRATION_JOB_SHARED_SECRET    = var.calibration_job_shared_secret
     DAILY_BRIEFING_JOB_SHARED_SECRET = var.daily_briefing_job_shared_secret
+    CLOUD_TASKS_QUEUE                = module.call_retry_queue.name
+    CLOUD_TASKS_LOCATION             = var.region
+    KMS_KEY_NAME                     = module.profile_kms.crypto_key_id
+  }
+  depends_on = [module.artifact_registry]
+}
+
+module "frontend_service_account" {
+  source       = "../../modules/service_account"
+  project_id   = var.project_id
+  account_id   = "argus-frontend"
+  display_name = "Argus frontend (Cloud Run)"
+  # No roles: the Next.js server renders pages and proxies nothing that needs
+  # Google credentials — all Firebase and backend calls happen from the browser.
+  roles      = []
+  depends_on = [module.apis]
+}
+
+module "frontend_service" {
+  source                = "../../modules/cloud_run_service"
+  project_id            = var.project_id
+  location              = var.region
+  name                  = "argus-frontend"
+  image                 = var.frontend_image
+  service_account_email = module.frontend_service_account.email
+  container_port        = 3000 # Next.js standalone server's default listen port
+  min_instance_count    = 0
+  max_instance_count    = 4
+  env_vars = {
+    NODE_ENV = "production"
   }
   depends_on = [module.artifact_registry]
 }

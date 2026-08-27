@@ -51,6 +51,9 @@ module "ci_service_account" {
     "roles/pubsub.admin",
     "roles/secretmanager.admin",
     "roles/artifactregistry.admin",
+    "roles/cloudscheduler.admin",
+    "roles/cloudtasks.admin",
+    "roles/cloudkms.admin",
     "roles/iam.serviceAccountUser",
     # environments/dev creates the argus-backend service account via the
     # service_account module, so CI must be able to create and delete service

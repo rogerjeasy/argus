@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
-import SettingsPage from "@/app/app/settings/page";
+import SettingsPage from "@/app/dashboard/settings/page";
 import { useIdToken } from "@/lib/auth/useIdToken";
 import { getUserSettings, updateUserSettings } from "@/lib/api/userSettings";
 

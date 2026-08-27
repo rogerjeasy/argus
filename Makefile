@@ -67,13 +67,36 @@ bootstrap:
 		-var="project_id=$(GCP_PROJECT_ID)" \
 		-var="state_bucket_name=$(GCP_TF_STATE_BUCKET)"
 
+# The frontend image bakes NEXT_PUBLIC_* in at build time, and the backend URL
+# is one of them — so a first-ever deploy is two passes: run once with the
+# images unset (services come up on the placeholder), then re-run once the
+# argus-backend URL exists. FRONTEND_API_ORIGIN / FRONTEND_ORIGIN default to
+# the standard dev Cloud Run URLs; override them if the service hash differs.
+FRONTEND_API_ORIGIN ?= https://argus-backend-7epknchwrq-uc.a.run.app
+FRONTEND_ORIGIN     ?= https://argus-frontend-7epknchwrq-uc.a.run.app
+BACKEND_IMAGE  = $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT_ID)/argus/argus-backend:latest
+FRONTEND_IMAGE = $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT_ID)/argus/argus-frontend:latest
+
 deploy:
 	gcloud auth configure-docker $(GCP_REGION)-docker.pkg.dev
-	docker build -t $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT_ID)/argus/argus-backend:latest backend
-	docker push $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT_ID)/argus/argus-backend:latest
+	docker build -t $(BACKEND_IMAGE) backend
+	docker push $(BACKEND_IMAGE)
+	docker build -t $(FRONTEND_IMAGE) \
+		--build-arg NEXT_PUBLIC_API_BASE_URL=$(FRONTEND_API_ORIGIN) \
+		--build-arg NEXT_PUBLIC_WS_BASE_URL=$(subst https://,wss://,$(FRONTEND_API_ORIGIN)) \
+		--build-arg NEXT_PUBLIC_FIREBASE_API_KEY=$(NEXT_PUBLIC_FIREBASE_API_KEY) \
+		--build-arg NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=$(NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN) \
+		--build-arg NEXT_PUBLIC_FIREBASE_PROJECT_ID=$(NEXT_PUBLIC_FIREBASE_PROJECT_ID) \
+		--build-arg NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=$(NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET) \
+		--build-arg NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=$(NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID) \
+		--build-arg NEXT_PUBLIC_FIREBASE_APP_ID=$(NEXT_PUBLIC_FIREBASE_APP_ID) \
+		frontend
+	docker push $(FRONTEND_IMAGE)
 	cd infra/terraform/environments/dev && \
 		terraform init -backend-config="bucket=$(GCP_TF_STATE_BUCKET)" && \
 		terraform apply \
 			-var="project_id=$(GCP_PROJECT_ID)" \
 			-var="firebase_project_id=$(GCP_PROJECT_ID)" \
-			-var="backend_image=$(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT_ID)/argus/argus-backend:latest"
+			-var="backend_image=$(BACKEND_IMAGE)" \
+			-var="frontend_image=$(FRONTEND_IMAGE)" \
+			-var='cors_allow_origins=["$(FRONTEND_ORIGIN)"]'

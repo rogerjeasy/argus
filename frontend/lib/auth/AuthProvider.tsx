@@ -12,7 +12,7 @@ import {
 } from "firebase/auth";
 import { createContext, useContext, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api/client";
-import { firebaseAuth } from "./firebase";
+import { getFirebaseAuth } from "./firebase";
 
 type AuthContextValue = {
   user: User | null;
@@ -48,7 +48,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(firebaseAuth, (nextUser) => {
+    const unsubscribe = onAuthStateChanged(getFirebaseAuth(), (nextUser) => {
       setUser(nextUser);
       setLoading(false);
     });
@@ -56,23 +56,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signInWithGoogle = async () => {
-    const credential = await signInWithPopup(firebaseAuth, new GoogleAuthProvider());
+    const credential = await signInWithPopup(getFirebaseAuth(), new GoogleAuthProvider());
     await syncProfile(credential.user);
   };
 
   const signInWithEmail = async (email: string, password: string) => {
-    const credential = await signInWithEmailAndPassword(firebaseAuth, email, password);
+    const credential = await signInWithEmailAndPassword(getFirebaseAuth(), email, password);
     await syncProfile(credential.user);
   };
 
   const signUpWithEmail = async (email: string, password: string, displayName: string) => {
-    const credential = await createUserWithEmailAndPassword(firebaseAuth, email, password);
+    const credential = await createUserWithEmailAndPassword(getFirebaseAuth(), email, password);
     await updateProfile(credential.user, { displayName });
     await syncProfile(credential.user);
   };
 
   const signOutUser = async () => {
-    await signOut(firebaseAuth);
+    await signOut(getFirebaseAuth());
   };
 
   return (
@@ -84,9 +84,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
+const PRERENDER_FALLBACK: AuthContextValue = {
+  user: null,
+  loading: true,
+  signInWithGoogle: async () => {},
+  signInWithEmail: async () => {},
+  signUpWithEmail: async () => {},
+  signOutUser: async () => {},
+};
+
 export function useAuth(): AuthContextValue {
   const context = useContext(AuthContext);
   if (!context) {
+    // On the server prerender pass React can invoke a client component
+    // before the provider tree it lives under has been established. Every
+    // caller already gates on `loading`, so returning the "auth not yet
+    // known" state there is correct; in the browser a missing provider is a
+    // real bug and still throws.
+    if (typeof window === "undefined") {
+      return PRERENDER_FALLBACK;
+    }
     throw new Error("useAuth must be used within an AuthProvider");
   }
   return context;

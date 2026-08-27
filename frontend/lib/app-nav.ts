@@ -8,8 +8,8 @@ export interface AppNavItem {
 }
 
 export const APP_NAV_ITEMS: AppNavItem[] = [
-  { href: "/app", label: "Session", icon: Mic },
-  { href: "/app/history", label: "History", icon: History },
-  { href: "/app/settings", label: "Settings", icon: Settings },
-  { href: "/app/contacts", label: "Contacts", icon: Phone },
+  { href: "/dashboard", label: "Session", icon: Mic },
+  { href: "/dashboard/history", label: "History", icon: History },
+  { href: "/dashboard/settings", label: "Settings", icon: Settings },
+  { href: "/dashboard/contacts", label: "Contacts", icon: Phone },
 ];

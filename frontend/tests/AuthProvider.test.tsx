@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AuthProvider, useAuth } from "../lib/auth/AuthProvider";
 
 vi.mock("../lib/auth/firebase", () => ({
-  firebaseAuth: {},
+  getFirebaseAuth: () => ({}),
 }));
 
 vi.mock("firebase/auth", () => ({

@@ -4,7 +4,7 @@ import { MarketingNav } from "../components/marketing/MarketingNav";
 import { AuthProvider } from "../lib/auth/AuthProvider";
 
 vi.mock("../lib/auth/firebase", () => ({
-  firebaseAuth: {},
+  getFirebaseAuth: () => ({}),
 }));
 
 let authCallback: ((user: unknown) => void) | null = null;
@@ -47,7 +47,7 @@ describe("MarketingNav", () => {
     authCallback?.({ uid: "user-1" });
 
     const ctas = await screen.findAllByRole("link", { name: "Open Argus" });
-    expect(ctas[0]).toHaveAttribute("href", "/app");
+    expect(ctas[0]).toHaveAttribute("href", "/dashboard");
   });
 
   it("opens mobile Sheet menu and links to /sign-in from mobile CTA when logged out", async () => {
@@ -99,6 +99,6 @@ describe("MarketingNav", () => {
 
     // Find the mobile CTA link within the dialog
     const mobileCta = within(dialog).getByRole("link", { name: "Open Argus" });
-    expect(mobileCta).toHaveAttribute("href", "/app");
+    expect(mobileCta).toHaveAttribute("href", "/dashboard");
   });
 });

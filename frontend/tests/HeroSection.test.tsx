@@ -4,7 +4,7 @@ import { HeroSection } from "../components/marketing/HeroSection";
 import { AuthProvider } from "../lib/auth/AuthProvider";
 
 vi.mock("../lib/auth/firebase", () => ({
-  firebaseAuth: {},
+  getFirebaseAuth: () => ({}),
 }));
 
 const signInWithPopupMock = vi.fn();

@@ -1,5 +1,5 @@
-import { type FirebaseOptions, getApps, initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
+import { type FirebaseOptions, getApp, getApps, initializeApp } from "firebase/app";
+import { type Auth, getAuth } from "firebase/auth";
 
 const firebaseConfig: FirebaseOptions = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -7,6 +7,18 @@ const firebaseConfig: FirebaseOptions = {
   projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
 };
 
-const app = getApps().length > 0 ? getApps()[0] : initializeApp(firebaseConfig);
+let cachedAuth: Auth | undefined;
 
-export const firebaseAuth = getAuth(app);
+/**
+ * Firebase Auth is only ever touched from the browser — inside effects and
+ * event handlers. Initializing it lazily (rather than at module load) keeps
+ * `getAuth()` out of the server prerender pass, where a partial or absent
+ * NEXT_PUBLIC_FIREBASE_* config would otherwise throw and fail the build.
+ */
+export function getFirebaseAuth(): Auth {
+  if (!cachedAuth) {
+    const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+    cachedAuth = getAuth(app);
+  }
+  return cachedAuth;
+}

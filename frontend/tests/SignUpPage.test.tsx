@@ -42,7 +42,7 @@ describe("SignUpPage", () => {
 
     render(<SignUpPage />);
 
-    expect(replace).toHaveBeenCalledWith("/app");
+    expect(replace).toHaveBeenCalledWith("/dashboard");
   });
 
   it("shows a mapped error when Google sign-in fails", async () => {

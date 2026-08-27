@@ -6,7 +6,7 @@ describe("PWA manifest", () => {
     const result = manifest();
     expect(result.name).toMatch(/argus/i);
     expect(result.short_name).toBe("Argus");
-    expect(result.start_url).toBe("/app");
+    expect(result.start_url).toBe("/dashboard");
     expect(result.display).toBe("standalone");
     // Must match app/globals.css's own token comments exactly:
     // --primary: 198 65% 32%; /* #1B5E77 harbor blue */
