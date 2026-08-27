@@ -91,6 +91,25 @@ class MemoryAgent:
     def _trusted_contact_doc(self, uid: str):
         return self._db.collection("argus_users").document(uid).collection("escalation").document("trusted_contact")
 
+    def _notes_doc(self, uid: str):
+        return self._db.collection("argus_users").document(uid).collection("memory").document("notes")
+
+    async def remember(self, uid: str, key: str, value: str) -> None:
+        """A free-form per-user key/value store the live agent writes to
+        when the user says "remember ..." — kept apart from the typed
+        profile/routes/permissions stores so an arbitrary key can't collide
+        with a schema'd field."""
+        snapshot = await run_in_threadpool(self._notes_doc(uid).get)
+        notes = snapshot.to_dict() if snapshot.exists else {}
+        notes[key] = value
+        await run_in_threadpool(self._notes_doc(uid).set, notes)
+
+    async def recall(self, uid: str, key: str) -> str | None:
+        snapshot = await run_in_threadpool(self._notes_doc(uid).get)
+        if not snapshot.exists:
+            return None
+        return snapshot.to_dict().get(key)
+
     async def get_user_settings(self, uid: str) -> UserSettings:
         snapshot = await run_in_threadpool(self._settings_doc(uid).get)
         if not snapshot.exists:

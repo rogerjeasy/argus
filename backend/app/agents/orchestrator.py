@@ -232,6 +232,21 @@ class TaskOrchestrator:
 
         return OrchestrationResult(guidance=guidance_output, guardrail=decision)
 
+    async def check_spoken_distress(self, session_id: str, uid: str, text: str) -> OrchestrationResult | None:
+        """The one deterministic safety check kept on the live transcript now
+        that Gemini itself drives the conversation — a distress keyword plus a
+        second corroborating signal still escalates to a human, exactly as it
+        did when every utterance ran through handle_goal."""
+        if not detect_distress_keywords(text):
+            return None
+        event = await self._escalation.consider_distress_signal(
+            session_id=session_id, uid=uid,
+            signal_type="spoken_distress", reason="distress keyword detected in spoken input",
+        )
+        if event is None:
+            return None
+        return self._distress_escalation_result(session_id)
+
     async def handle_ambient_sound_signal(self, session_id: str, uid: str, category: str) -> OrchestrationResult | None:
         escalation_event = await self._escalation.consider_distress_signal(
             session_id=session_id, uid=uid,

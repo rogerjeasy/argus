@@ -43,7 +43,7 @@ from app.domains.transit.registry import get_transit_domains
 from app.integrations.storage_client import RealStorageClient
 from app.integrations.translation_client import TranslationClient, _PassthroughTranslationClient
 from app.integrations.twilio_client import RealTwilioClient
-from app.models.agent_events import PerceivedGoal
+from app.ws.agent_tools import SYSTEM_INSTRUCTION, TOOL_DECLARATIONS, ArgusToolbox
 from app.ws.gemini_bridge import GeminiLiveBridge
 from app.ws.twilio_media import get_call_session_registry
 
@@ -121,6 +121,20 @@ def _reasoning_model(settings: Settings) -> Gemini:
     return Gemini(
         model="gemini-2.5-flash",
         client_kwargs={"vertexai": True, "project": settings.gcp_project_id, "location": settings.vertex_ai_location},
+    )
+
+
+def _build_call_executor(settings: Settings) -> CallExecutor | None:
+    """The real Twilio-backed outbound-call executor, or None when Twilio
+    isn't configured — the live `place_phone_call` tool and the Personal
+    Admin domain both need it, built from one place."""
+    if not (settings.twilio_account_sid and settings.twilio_from_number):
+        return None
+    return CallExecutor(
+        RealTwilioClient(settings.twilio_account_sid, settings.twilio_auth_token),
+        get_call_session_registry(),
+        from_number=settings.twilio_from_number,
+        public_base_url=settings.public_base_url,
     )
 
 
@@ -251,9 +265,21 @@ async def session_endpoint(
         )
 
         bridge = bridge_factory(settings)
+        # The orchestrator + eleven-agent pipeline still run the no-session
+        # background work (daily briefing, self-calibration) and the
+        # deterministic distress check. The live conversation itself is
+        # Gemini's job now, reaching real data through ArgusToolbox.
         orchestrator = await build_orchestrator(db)
+        memory = MemoryAgent(db)
+        toolbox = ArgusToolbox(
+            uid=user.uid,
+            transit_domains=await get_transit_domains(settings),
+            memory=memory,
+            call_executor=_build_call_executor(settings),
+            speak=lambda text: bridge.speak(text),
+        )
 
-        user_settings = await MemoryAgent(db).get_user_settings(user.uid)
+        user_settings = await memory.get_user_settings(user.uid)
         audio_perception_agent = (
             AudioPerceptionAgent(audio_classifier_factory(settings))
             if user_settings.audio_perception_enabled
@@ -281,110 +307,34 @@ async def session_endpoint(
                 }))
 
         async def _handle_transcript(text: str) -> None:
-            logger.info(
-                "ws_session_transcript",
-                extra={"session_id": session_id, "text": text},
-            )
-            goal = PerceivedGoal(session_id=session_id, uid=user.uid, raw_text=text)
+            logger.info("ws_session_transcript", extra={"session_id": session_id, "text": text})
+            # Gemini drives the conversation; the only thing the backend still
+            # does with the raw transcript is the deterministic safety check —
+            # a distress phrase must escalate whether or not the model noticed.
             try:
-                result = await orchestrator.handle_goal(goal)
-            except ValueError:
-                # The router found no domain for this utterance (or picked an
-                # invalid one). That is a normal "please rephrase" situation,
-                # not a reason to tear down a live session — say so and wait
-                # for the next turn.
-                logger.info("ws_session_goal_unrouted", extra={"session_id": session_id})
-                await _speak_fallback(
-                    "I didn't catch a task I can help with there. Try naming what you "
-                    "need — directions to a platform, track, or gate, or help with a "
-                    "letter, bill, or form."
-                )
-                return
+                distress = await orchestrator.check_spoken_distress(session_id, user.uid, text)
             except Exception:
-                # A downstream agent failed. Keep the session alive so the user
-                # can retry rather than dropping to a connection error.
-                logger.exception("ws_session_goal_failed", extra={"session_id": session_id})
-                await _speak_fallback("Something went wrong handling that. Please try again.")
+                logger.exception("ws_session_distress_check_failed", extra={"session_id": session_id})
                 return
-            await _speak_and_send_guidance(result)
+            if distress is not None:
+                await _speak_and_send_guidance(distress)
 
-        async def _speak_fallback(message: str) -> None:
-            await bridge.speak(message)
-            if websocket.application_state == WebSocketState.CONNECTED:
-                # Same frame shape the client's parseControlFrame() requires —
-                # an informational message still rides the guidance channel, so
-                # it needs the guardrail fields even though nothing was gated.
-                await websocket.send_text(json.dumps({
-                    "type": "guidance",
-                    "text": message,
-                    "haptic_pattern": None,
-                    "earcon": None,
-                    "guardrail_decision": "approved",
-                    "step_id": "",
-                    "language": user_settings.language_preference,
-                }))
+        async def _handle_tool_call(name: str, args: dict) -> dict:
+            logger.info("ws_session_tool_call", extra={"session_id": session_id, "tool": name})
+            return await toolbox.dispatch(name, args)
 
         async def _handle_client_text_message(raw: str) -> None:
-            try:
-                payload = json.loads(raw)
-            except json.JSONDecodeError:
-                logger.warning("ws_session_malformed_client_text", extra={"session_id": session_id})
-                return
-            if not isinstance(payload, dict):
-                return
+            # No client-driven control messages in the conversational model —
+            # confirmations happen out loud, through Gemini. Kept as a no-op
+            # sink so an old client sending one is ignored, not an error.
+            logger.debug("ws_session_client_text_ignored", extra={"session_id": session_id})
 
-            message_type = payload.get("type")
-            if message_type == "resolve_confirmation":
-                accepted = bool(payload.get("accepted", False))
-                result = await orchestrator.resolve_confirmation(session_id, user.uid, accepted)
-            elif message_type == "resolve_field_input":
-                value = str(payload.get("value", ""))
-                result = await orchestrator.resolve_field_input(session_id, user.uid, value)
-            else:
-                return
-
-            if result is not None:
-                await _speak_and_send_guidance(result)
-
+        bridge.configure(
+            system_instruction=SYSTEM_INSTRUCTION,
+            tool_declarations=TOOL_DECLARATIONS,
+            tool_handler=_handle_tool_call,
+        )
         bridge.set_on_input_transcript(_handle_transcript)
-
-        perception = PerceptionAgent()
-        # shape_framing() is deterministic and never touches self._runner, so
-        # passing None directly is safe here — unlike GuidanceAgent's shape(),
-        # which absolutely does need a working LlmAgentRunner. Constructing a
-        # real LlmAgentRunner(agent=None) instead would fail: ADK's Runner
-        # rejects a None agent at construction time, before shape_framing()
-        # ever gets the chance to not use it.
-        guidance_for_framing = GuidanceAgent(None)
-        last_framing_position: str | None = None
-
-        async def _handle_scene_observation(args: dict) -> None:
-            nonlocal last_framing_position
-            framing, signal = perception.handle_scene_observation(
-                session_id=session_id,
-                text_detected=bool(args.get("text_detected", False)),
-                position=str(args.get("position", "none")),
-                signage_text=str(args.get("signage_text", "")),
-                confidence=float(args.get("confidence", 0.0)),
-            )
-
-            if framing.position != last_framing_position:
-                last_framing_position = framing.position
-                framing_guidance = guidance_for_framing.shape_framing(session_id, framing)
-                await bridge.speak(framing_guidance.text)
-                if websocket.application_state == WebSocketState.CONNECTED:
-                    await websocket.send_text(json.dumps({
-                        "type": "framing",
-                        "text": framing_guidance.text,
-                        "confidence_low": not framing.text_detected,
-                    }))
-
-            if signal is not None:
-                result = await orchestrator.handle_scene_signal(signal)
-                if result is not None:
-                    await _speak_and_send_guidance(result)
-
-        bridge.set_on_scene_observation(_handle_scene_observation)
 
         try:
             await bridge.connect()
