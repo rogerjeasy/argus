@@ -37,7 +37,11 @@ class _FakeLiveSession:
         self.tool_responses_sent.append(function_responses)
 
     async def receive(self) -> AsyncIterator[_FakeMessage]:
-        for message in self._replies:
+        # The real AsyncSession.receive() ends its iterator at each
+        # turn_complete and run() calls it again per turn — hand out the
+        # scripted replies once, then act like an exhausted session.
+        replies, self._replies = self._replies, []
+        for message in replies:
             yield message
 
     async def close(self) -> None:

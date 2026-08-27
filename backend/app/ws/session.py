@@ -301,7 +301,18 @@ async def session_endpoint(
         async def _speak_fallback(message: str) -> None:
             await bridge.speak(message)
             if websocket.application_state == WebSocketState.CONNECTED:
-                await websocket.send_text(json.dumps({"type": "guidance", "text": message}))
+                # Same frame shape the client's parseControlFrame() requires —
+                # an informational message still rides the guidance channel, so
+                # it needs the guardrail fields even though nothing was gated.
+                await websocket.send_text(json.dumps({
+                    "type": "guidance",
+                    "text": message,
+                    "haptic_pattern": None,
+                    "earcon": None,
+                    "guardrail_decision": "approved",
+                    "step_id": "",
+                    "language": user_settings.language_preference,
+                }))
 
         async def _handle_client_text_message(raw: str) -> None:
             try:
