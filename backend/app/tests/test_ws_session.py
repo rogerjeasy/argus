@@ -266,6 +266,37 @@ def test_ws_session_sends_a_guidance_frame_after_a_finished_transcript(monkeypat
     assert stub_bridge.spoken == ["Head to platform 4."]
 
 
+class _UnroutableOrchestrator(_FakeOrchestrator):
+    async def handle_goal(self, goal):
+        raise ValueError("no domain plugin matches this goal")
+
+
+def test_ws_session_survives_an_unroutable_transcript(monkeypatch) -> None:
+    import asyncio
+    import json
+
+    fake_db = FakeFirestoreClient()
+    stub_bridge = _StubBridgeWithTranscript()
+
+    app.dependency_overrides[get_firestore_client] = lambda: fake_db
+    app.dependency_overrides[get_bridge_factory] = lambda: (lambda settings: stub_bridge)
+    monkeypatch.setattr("app.ws.session.verify_id_token_string", _authenticated_as("user-1"))
+    _mock_build_orchestrator(monkeypatch, _UnroutableOrchestrator())
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws/session?token=valid-token") as websocket:
+        websocket.receive_bytes()
+        asyncio.run(stub_bridge.on_input_transcript("what's the weather like"))
+        payload = json.loads(websocket.receive_text())
+        # The socket is still open — a second turn is still handled.
+        asyncio.run(stub_bridge.on_input_transcript("tell me a joke"))
+        websocket.receive_text()
+
+    assert payload["type"] == "guidance"
+    assert "task I can help with" in payload["text"]
+    assert stub_bridge.spoken  # the fallback was spoken, not dropped
+
+
 def test_ws_session_guidance_frame_defaults_to_english_and_never_translates(monkeypatch) -> None:
     import json
 

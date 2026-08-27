@@ -276,8 +276,32 @@ async def session_endpoint(
 
         async def _handle_transcript(text: str) -> None:
             goal = PerceivedGoal(session_id=session_id, uid=user.uid, raw_text=text)
-            result = await orchestrator.handle_goal(goal)
+            try:
+                result = await orchestrator.handle_goal(goal)
+            except ValueError:
+                # The router found no domain for this utterance (or picked an
+                # invalid one). That is a normal "please rephrase" situation,
+                # not a reason to tear down a live session — say so and wait
+                # for the next turn.
+                logger.info("ws_session_goal_unrouted", extra={"session_id": session_id})
+                await _speak_fallback(
+                    "I didn't catch a task I can help with there. Try naming what you "
+                    "need — directions to a platform, track, or gate, or help with a "
+                    "letter, bill, or form."
+                )
+                return
+            except Exception:
+                # A downstream agent failed. Keep the session alive so the user
+                # can retry rather than dropping to a connection error.
+                logger.exception("ws_session_goal_failed", extra={"session_id": session_id})
+                await _speak_fallback("Something went wrong handling that. Please try again.")
+                return
             await _speak_and_send_guidance(result)
+
+        async def _speak_fallback(message: str) -> None:
+            await bridge.speak(message)
+            if websocket.application_state == WebSocketState.CONNECTED:
+                await websocket.send_text(json.dumps({"type": "guidance", "text": message}))
 
         async def _handle_client_text_message(raw: str) -> None:
             try:
