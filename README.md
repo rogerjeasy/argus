@@ -58,18 +58,35 @@ Then set the three printed outputs as GitHub Actions repository variables
 `GCP_WORKLOAD_IDENTITY_PROVIDER`) alongside `GCP_PROJECT_ID` — CI never
 touches a long-lived service-account key, only these public identifiers.
 
-There is nothing else to populate: the deployed backend authenticates to
-Firebase Admin, Firestore and Vertex AI via Application Default Credentials —
-the Cloud Run service account's own identity — so no credential file exists to
-upload or rotate.
+The deployed backend authenticates to Firebase Admin, Firestore and Vertex AI
+via Application Default Credentials — the Cloud Run service account's own
+identity — so no credential file exists to upload or rotate. The frontend's
+`NEXT_PUBLIC_FIREBASE_*` web config (public, not secret) is set as repository
+variables of the same names, plus `BACKEND_ORIGIN` / `FRONTEND_ORIGIN` (the two
+Cloud Run URLs).
+
+Both the FastAPI backend and the Next.js frontend run on Cloud Run
+(`argus-backend`, `argus-frontend`). Because Next inlines `NEXT_PUBLIC_*` at
+build time, the frontend image is built with the backend URL and Firebase
+config baked in — see `frontend/Dockerfile`.
+
+**Google Sign-In is the one manual step** (this project has no GCP org, so the
+OAuth consent screen can't be created via API): in the Firebase console →
+Authentication → Sign-in method, enable **Google**. Email/Password is already
+enabled and the Cloud Run domain is already an authorized domain.
 
 **Manually, from a laptop**, once bootstrap is done:
 ```bash
 export GCP_PROJECT_ID=your-project-id
 export GCP_TF_STATE_BUCKET=your-state-bucket-name
+# NEXT_PUBLIC_FIREBASE_* must be exported too (or sourced from argus/.env)
 make deploy
 ```
+A brand-new project needs two `make deploy` passes: the first brings the
+services up on a placeholder image, the second — once the `argus-backend` URL
+exists — rebuilds the frontend against it. Override `FRONTEND_API_ORIGIN` /
+`FRONTEND_ORIGIN` if the Cloud Run service hash differs from the default.
 
-**Automatically:** pushes to `main` run the full test suite, build the
-backend image into Artifact Registry, and `terraform apply` the `dev`
-environment, via `.github/workflows/ci.yml`.
+**Automatically:** pushes to `main` run the full test suite, build both images
+into Artifact Registry, and `terraform apply` the `dev` environment; PRs get a
+`terraform plan`. See `.github/workflows/ci.yml`.

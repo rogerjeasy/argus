@@ -14,6 +14,13 @@
   `.tf` files with a different `terraform.tfvars` and backend `prefix`,
   reusing every module unchanged.
 
+Both services run on Cloud Run via the `cloud_run_service` module:
+`argus-backend` (FastAPI) and `argus-frontend` (Next.js standalone). The
+frontend's `NEXT_PUBLIC_*` values are baked into its image at build time, not
+passed here. `cloud_tasks_queue` backs the Call Agent retry path and
+`kms_crypto_key` holds the key that encrypts Personal Admin profile fields —
+granted key-scoped to the backend service account, not project-wide.
+
 ## One-time bootstrap (by a project owner)
 
 ```bash
