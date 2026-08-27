@@ -289,6 +289,19 @@ async def session_endpoint(
         translation_client = translation_client_factory(settings)
         frame_prefilter = frame_prefilter_factory(settings)
         frames_filtered_by_prefilter = 0
+        started_at = datetime.now(timezone.utc).isoformat()
+        session_user_turns: list[str] = []
+        session_tool_calls: list[str] = []
+        summary_runner = LlmAgentRunner(
+            agent=LlmAgent(
+                name="session_summary",
+                model=_reasoning_model(settings),
+                instruction=(
+                    "Summarize this Argus voice session in one short past-tense sentence for the "
+                    "user's history list — what they asked about and what Argus did. No preamble."
+                ),
+            )
+        )
 
         async def _speak_and_send_guidance(result) -> None:
             text = result.guidance.text
@@ -308,6 +321,8 @@ async def session_endpoint(
 
         async def _handle_transcript(text: str) -> None:
             logger.info("ws_session_transcript", extra={"session_id": session_id, "text": text})
+            if text.strip():
+                session_user_turns.append(text.strip())
             # Gemini drives the conversation; the only thing the backend still
             # does with the raw transcript is the deterministic safety check —
             # a distress phrase must escalate whether or not the model noticed.
@@ -321,7 +336,36 @@ async def session_endpoint(
 
         async def _handle_tool_call(name: str, args: dict) -> dict:
             logger.info("ws_session_tool_call", extra={"session_id": session_id, "tool": name})
+            session_tool_calls.append(name)
             return await toolbox.dispatch(name, args)
+
+        async def _write_session_summary(ended_at: str) -> None:
+            """Best-effort end-of-session history row. Falls back to a
+            templated line if the summary model is slow or errors — a
+            history entry should always appear once someone actually spoke."""
+            if not session_user_turns:
+                return
+            summary = ""
+            try:
+                prompt = (
+                    "User said:\n- " + "\n- ".join(session_user_turns[:12])
+                    + ("\nTools Argus used: " + ", ".join(sorted(set(session_tool_calls))) if session_tool_calls else "")
+                )
+                summary = (
+                    await asyncio.wait_for(
+                        summary_runner.invoke(user_id=user.uid, session_id=session_id, prompt=prompt),
+                        timeout=8.0,
+                    )
+                ).strip()
+            except Exception:
+                logger.warning("ws_session_summary_llm_failed", extra={"session_id": session_id})
+            if not summary:
+                first = session_user_turns[0]
+                summary = f'Talked with Argus about "{first[:80]}".'
+            await memory.record_session_summary(
+                uid=user.uid, session_id=session_id, summary=summary,
+                started_at=started_at, ended_at=ended_at,
+            )
 
         async def _handle_client_text_message(raw: str) -> None:
             # No client-driven control messages in the conversational model —
@@ -456,14 +500,16 @@ async def session_endpoint(
             # thread ever starts, and the session would be left stuck at
             # status "active". Shielding defers that cancellation until the
             # write has actually happened.
+            ended_at = datetime.now(timezone.utc).isoformat()
             with anyio.CancelScope(shield=True):
                 await run_in_threadpool(
                     session_doc.update,
-                    {
-                        "ended_at": datetime.now(timezone.utc).isoformat(),
-                        "status": final_status,
-                    },
+                    {"ended_at": ended_at, "status": final_status},
                 )
+                try:
+                    await _write_session_summary(ended_at)
+                except Exception:
+                    logger.exception("ws_session_summary_failed", extra={"session_id": session_id})
             logger.info(
                 "ws_session_disconnected",
                 extra={
