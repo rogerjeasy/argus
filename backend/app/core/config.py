@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     gcp_project_id: str = "argus-local-dev"
     firebase_project_id: str = "argus-local-dev"
     vertex_ai_location: str = "us-central1"
-    gemini_live_model: str = "gemini-live-2.5-flash"
+    gemini_live_model: str = "gemini-live-2.5-flash-native-audio"
     cors_allow_origins: list[str] = ["http://localhost:3000"]
     gtfs_ch_static_feed_url: str = ""
     gtfs_ch_realtime_feed_url: str = ""

@@ -20,7 +20,7 @@ variable "cors_allow_origins" {
 
 variable "gemini_live_model" {
   type    = string
-  default = "gemini-live-2.5-flash"
+  default = "gemini-live-2.5-flash-native-audio"
 }
 
 variable "backend_image" {
