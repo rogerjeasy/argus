@@ -101,8 +101,13 @@ module "backend_service" {
   name                  = "argus-backend"
   image                 = var.backend_image
   service_account_email = module.backend_service_account.email
-  min_instance_count    = 0
-  max_instance_count    = 4
+  # Each WS session loads the GTFS feeds and the ADK agent stack; 512Mi OOM-kills
+  # the container mid-handshake. One warm instance keeps demo sessions from
+  # paying that cold-start cost.
+  cpu                = "2"
+  memory             = "2Gi"
+  min_instance_count = 1
+  max_instance_count = 4
   env_vars = {
     ENVIRONMENT         = "production"
     GCP_PROJECT_ID      = var.project_id

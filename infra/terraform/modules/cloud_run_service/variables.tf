@@ -24,6 +24,17 @@ variable "container_port" {
   default = 8000
 }
 
+variable "cpu" {
+  type    = string
+  default = "1"
+}
+
+variable "memory" {
+  type        = string
+  description = "Container memory limit. The backend loads GTFS feeds and the agent framework per session, which overruns 512Mi."
+  default     = "512Mi"
+}
+
 variable "min_instance_count" {
   type    = number
   default = 0
