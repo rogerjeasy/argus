@@ -20,7 +20,7 @@ export default function SignInPage() {
 
   useEffect(() => {
     if (!loading && user) {
-      router.replace("/app");
+      router.replace("/dashboard");
     }
   }, [loading, user, router]);
 
@@ -52,7 +52,7 @@ export default function SignInPage() {
         </GoogleSignInButton>
         <AuthFormError message={googleError} />
         <AuthDivider />
-        <SignInForm onSuccess={() => router.replace("/app")} />
+        <SignInForm onSuccess={() => router.replace("/dashboard")} />
         <p className="text-center text-sm text-muted-foreground">
           New to Argus?{" "}
           <Link href="/sign-up" className="font-medium text-primary hover:underline">

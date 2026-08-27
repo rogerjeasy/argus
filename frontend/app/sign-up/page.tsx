@@ -20,7 +20,7 @@ export default function SignUpPage() {
 
   useEffect(() => {
     if (!loading && user) {
-      router.replace("/app");
+      router.replace("/dashboard");
     }
   }, [loading, user, router]);
 
@@ -52,7 +52,7 @@ export default function SignUpPage() {
         </GoogleSignInButton>
         <AuthFormError message={googleError} />
         <AuthDivider />
-        <SignUpForm onSuccess={() => router.replace("/app")} />
+        <SignUpForm onSuccess={() => router.replace("/dashboard")} />
         <p className="text-center text-sm text-muted-foreground">
           Already have an account?{" "}
           <Link href="/sign-in" className="font-medium text-primary hover:underline">

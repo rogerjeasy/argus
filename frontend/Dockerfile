@@ -50,14 +50,13 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
-RUN useradd --create-home --uid 1000 argus
-
+# node:20-slim ships a non-root `node` user (uid 1000) — reuse it.
 # `output: "standalone"` emits a trimmed server + its own node_modules here.
-COPY --from=builder --chown=argus:argus /app/.next/standalone ./
-COPY --from=builder --chown=argus:argus /app/.next/static ./.next/static
-COPY --from=builder --chown=argus:argus /app/public ./public
+COPY --from=builder --chown=node:node /app/.next/standalone ./
+COPY --from=builder --chown=node:node /app/.next/static ./.next/static
+COPY --from=builder --chown=node:node /app/public ./public
 
-USER argus
+USER node
 
 # Cloud Run injects PORT to match the service's container port; the Next
 # standalone server reads it. Kept at 3000 to line up with local `next start`.

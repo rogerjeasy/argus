@@ -9,7 +9,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("../lib/auth/firebase", () => ({
-  firebaseAuth: {},
+  getFirebaseAuth: () => ({}),
 }));
 
 vi.mock("firebase/auth", () => ({

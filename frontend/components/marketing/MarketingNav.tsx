@@ -36,13 +36,13 @@ export function MarketingNav() {
 
   const desktopCta = (
     <Button asChild>
-      <Link href={user ? "/app" : "/sign-in"}>{ctaLabel}</Link>
+      <Link href={user ? "/dashboard" : "/sign-in"}>{ctaLabel}</Link>
     </Button>
   );
 
   const mobileCta = (
     <Button asChild size="lg" className="w-full">
-      <Link href={user ? "/app" : "/sign-in"}>{ctaLabel}</Link>
+      <Link href={user ? "/dashboard" : "/sign-in"}>{ctaLabel}</Link>
     </Button>
   );
 
