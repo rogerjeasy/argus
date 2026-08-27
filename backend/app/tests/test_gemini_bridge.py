@@ -66,7 +66,12 @@ class _FakeLiveSession:
         self.tool_responses_sent.append(function_responses)
 
     async def receive(self) -> AsyncIterator[_FakeMessage]:
-        for message in self._replies:
+        # The real AsyncSession.receive() ends its iterator at each
+        # turn_complete; the bridge calls it again for the next turn. Hand out
+        # the scripted replies once, then behave like an exhausted session so
+        # the bridge's per-turn loop terminates instead of spinning.
+        replies, self._replies = self._replies, []
+        for message in replies:
             yield message
 
     async def close(self) -> None:
@@ -352,3 +357,70 @@ async def test_receive_audio_ignores_tool_calls_when_no_callback_is_set() -> Non
 
     assert received == []
     assert len(fake_session.tool_responses_sent) == 1
+
+
+class _MultiTurnLiveSession(_FakeLiveSession):
+    """`receive()` hands out one turn's messages per call, like the real
+    AsyncSession, so the bridge's per-turn loop is exercised across turns."""
+
+    def __init__(self, turns: list[list[_FakeMessage]]) -> None:
+        super().__init__(replies=[])
+        self._turns = list(turns)
+
+    async def receive(self):
+        if not self._turns:
+            return
+        for message in self._turns.pop(0):
+            yield message
+
+
+@pytest.mark.asyncio
+async def test_receive_audio_keeps_pulling_turns_after_turn_complete() -> None:
+    # The bug this guards: AsyncSession.receive() ends its iterator at
+    # turn_complete, so a single `async for` processed exactly one turn and
+    # then let the whole session tear down. receive_audio() must call
+    # receive() again for the next turn — here, turn 2 carries a transcript
+    # that only fires if the loop kept going past turn 1's turn_complete.
+    turns = [
+        [_FakeMessage(server_content=_FakeServerContent(data=b"turn-1", turn_complete=True), data=b"turn-1")],
+        [_FakeMessage(server_content=_FakeServerContent(input_transcript=("second turn", True)))],
+    ]
+    fake_session = _MultiTurnLiveSession(turns)
+    fake_client = MagicMock()
+    fake_client.aio.live.connect.return_value = fake_session
+
+    transcripts: list[str] = []
+
+    async def _record(text: str) -> None:
+        transcripts.append(text)
+
+    bridge = GeminiLiveBridge(_settings(), client_factory=lambda: fake_client)
+    bridge.set_on_input_transcript(_record)
+    await bridge.connect()
+    await bridge.speak("first")
+
+    received = [chunk async for chunk in bridge.receive_audio()]
+
+    assert received == [b"turn-1"]
+    assert transcripts == ["second turn"]
+
+
+@pytest.mark.asyncio
+async def test_receive_audio_ends_cleanly_on_a_websocket_close() -> None:
+    from google.genai import errors as genai_errors
+
+    class _ClosingSession(_FakeLiveSession):
+        async def receive(self):
+            raise genai_errors.APIError(1011, {"message": "going away"}, None)
+            yield  # unreachable — forces this to be an async generator, like the real one
+
+    fake_session = _ClosingSession(replies=[])
+    fake_client = MagicMock()
+    fake_client.aio.live.connect.return_value = fake_session
+
+    bridge = GeminiLiveBridge(_settings(), client_factory=lambda: fake_client)
+    await bridge.connect()
+
+    received = [chunk async for chunk in bridge.receive_audio()]
+
+    assert received == []
