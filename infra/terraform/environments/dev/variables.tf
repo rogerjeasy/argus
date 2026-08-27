@@ -29,6 +29,12 @@ variable "backend_image" {
   default     = "us-docker.pkg.dev/cloudrun/container/hello"
 }
 
+variable "frontend_image" {
+  type        = string
+  description = "Full Artifact Registry image reference (tag or digest) for the frontend container. Built with the backend URL and Firebase web config baked in as NEXT_PUBLIC_* values (see frontend/Dockerfile). Same public placeholder default as backend_image."
+  default     = "us-docker.pkg.dev/cloudrun/container/hello"
+}
+
 variable "calibration_job_shared_secret" {
   type        = string
   description = "Populated manually post-apply, same convention as this project's other externally-issued secrets (Twilio credentials are wired the same way — see the Self-Calibration plan's Task 9 note)."

@@ -1,7 +1,13 @@
-project_id          = "argus-hackathon"
+project_id          = "all-things-agentics"
 region              = "us-central1"
-firebase_project_id = "argus-hackathon"
+firebase_project_id = "all-things-agentics"
 
-# The deployed frontend's origin. Leave at the default and a browser on any
-# real domain is blocked by CORS.
+# The deployed frontend's origin — set this to the argus-frontend Cloud Run
+# URL after the first apply, then re-apply. Left at the default, a browser on
+# the real frontend domain is blocked by CORS.
 cors_allow_origins = ["http://localhost:3000"]
+
+# Container images. Left at the public placeholder, the services come up
+# running hello-world; pass the real Artifact Registry references once built.
+# backend_image  = "us-central1-docker.pkg.dev/all-things-agentics/argus/argus-backend:<sha>"
+# frontend_image = "us-central1-docker.pkg.dev/all-things-agentics/argus/argus-frontend:<sha>"

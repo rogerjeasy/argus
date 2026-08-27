@@ -1,4 +1,4 @@
-project_id        = "argus-hackathon"
+project_id        = "all-things-agentics"
 region            = "us-central1"
-state_bucket_name = "argus-tfstate-change-me"
+state_bucket_name = "argus-tfstate-all-things-agentics"
 github_repository = "rogerjeasy/argus"
