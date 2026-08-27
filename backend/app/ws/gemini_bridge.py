@@ -3,6 +3,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from google import genai
+from google.genai import errors as genai_errors
 from google.genai import types as genai_types
 
 from app.core.config import Settings
@@ -154,33 +155,55 @@ class GeminiLiveBridge:
     async def receive_audio(self) -> AsyncIterator[bytes]:
         if self._live_session is None:
             raise RuntimeError("call connect() before receive_audio()")
-        async for response in self._live_session.receive():
-            if response.tool_call is not None:
-                await self._handle_tool_call(response.tool_call)
+        # In this SDK version AsyncSession.receive() ends its iterator at each
+        # turn_complete, so a single `async for` would relay exactly one model
+        # turn and then let the whole session tear down. Restart it per turn
+        # for the life of the socket; a close surfaces as an APIError carrying
+        # a WebSocket close code (>= 1000), which ends the generator cleanly
+        # rather than bubbling up as a session failure.
+        while True:
+            saw_response = False
+            try:
+                async for response in self._live_session.receive():
+                    saw_response = True
+                    if response.tool_call is not None:
+                        await self._handle_tool_call(response.tool_call)
 
-            content = response.server_content
-            if content is not None:
-                self._turn_active = True
-                transcript = content.input_transcription
-                if transcript is not None and transcript.text:
-                    self._pending_input_transcript += transcript.text
-                if transcript is not None and transcript.finished and self._pending_input_transcript:
-                    finished_text, self._pending_input_transcript = self._pending_input_transcript, ""
-                    if self._on_input_transcript is not None:
-                        await self._on_input_transcript(finished_text)
+                    content = response.server_content
+                    if content is not None:
+                        self._turn_active = True
+                        transcript = content.input_transcription
+                        if transcript is not None and transcript.text:
+                            self._pending_input_transcript += transcript.text
+                        if transcript is not None and transcript.finished and self._pending_input_transcript:
+                            finished_text, self._pending_input_transcript = self._pending_input_transcript, ""
+                            if self._on_input_transcript is not None:
+                                await self._on_input_transcript(finished_text)
 
-            if self._relay_current_turn and response.data is not None:
-                yield response.data
-            elif response.data is not None:
-                logger.debug("discarding unvetted audio chunk outside a speak() turn")
+                    if self._relay_current_turn and response.data is not None:
+                        yield response.data
+                    elif response.data is not None:
+                        logger.debug("discarding unvetted audio chunk outside a speak() turn")
 
-            if content is not None and (content.turn_complete or content.interrupted):
-                self._turn_active = False
-                if self._pending_speak_relay:
-                    self._relay_current_turn = True
-                    self._pending_speak_relay = False
-                else:
-                    self._relay_current_turn = False
+                    if content is not None and (content.turn_complete or content.interrupted):
+                        self._turn_active = False
+                        if self._pending_speak_relay:
+                            self._relay_current_turn = True
+                            self._pending_speak_relay = False
+                        else:
+                            self._relay_current_turn = False
+            except genai_errors.APIError as exc:
+                # A WebSocket close surfaces here with a close code (>= 1000);
+                # end the stream cleanly rather than failing the session.
+                if exc.code and exc.code >= 1000:
+                    logger.info("gemini_live_session_closed", extra={"close_code": exc.code})
+                    return
+                raise
+            # A real session blocks in receive() between turns; an iterator
+            # that yields nothing means the session object is exhausted (the
+            # socket is gone, or — in tests — the fake has no more messages).
+            if not saw_response:
+                return
 
     async def _handle_tool_call(self, tool_call: Any) -> None:
         for fc in tool_call.function_calls:

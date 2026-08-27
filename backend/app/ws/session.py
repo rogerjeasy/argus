@@ -135,7 +135,13 @@ async def build_orchestrator(db: firestore.Client) -> TaskOrchestrator:
     indoor_wayfinding_domain = await get_indoor_wayfinding_domain(settings)
     router_runner = LlmAgentRunner(
         agent=LlmAgent(
-            name="domain_router", model=_reasoning_model(settings), instruction="Classify the goal into one domain id."
+            name="domain_router",
+            model=_reasoning_model(settings),
+            instruction=(
+                "You classify a user's spoken request into one task domain. "
+                "Reply with exactly one domain id from the list you are given, "
+                "or NONE if the request fits none of them. Output that token only."
+            ),
         )
     )
     planner_runner = LlmAgentRunner(
@@ -275,9 +281,48 @@ async def session_endpoint(
                 }))
 
         async def _handle_transcript(text: str) -> None:
+            logger.info(
+                "ws_session_transcript",
+                extra={"session_id": session_id, "text": text},
+            )
             goal = PerceivedGoal(session_id=session_id, uid=user.uid, raw_text=text)
-            result = await orchestrator.handle_goal(goal)
+            try:
+                result = await orchestrator.handle_goal(goal)
+            except ValueError:
+                # The router found no domain for this utterance (or picked an
+                # invalid one). That is a normal "please rephrase" situation,
+                # not a reason to tear down a live session — say so and wait
+                # for the next turn.
+                logger.info("ws_session_goal_unrouted", extra={"session_id": session_id})
+                await _speak_fallback(
+                    "I didn't catch a task I can help with there. Try naming what you "
+                    "need — directions to a platform, track, or gate, or help with a "
+                    "letter, bill, or form."
+                )
+                return
+            except Exception:
+                # A downstream agent failed. Keep the session alive so the user
+                # can retry rather than dropping to a connection error.
+                logger.exception("ws_session_goal_failed", extra={"session_id": session_id})
+                await _speak_fallback("Something went wrong handling that. Please try again.")
+                return
             await _speak_and_send_guidance(result)
+
+        async def _speak_fallback(message: str) -> None:
+            await bridge.speak(message)
+            if websocket.application_state == WebSocketState.CONNECTED:
+                # Same frame shape the client's parseControlFrame() requires —
+                # an informational message still rides the guidance channel, so
+                # it needs the guardrail fields even though nothing was gated.
+                await websocket.send_text(json.dumps({
+                    "type": "guidance",
+                    "text": message,
+                    "haptic_pattern": None,
+                    "earcon": None,
+                    "guardrail_decision": "approved",
+                    "step_id": "",
+                    "language": user_settings.language_preference,
+                }))
 
         async def _handle_client_text_message(raw: str) -> None:
             try:
